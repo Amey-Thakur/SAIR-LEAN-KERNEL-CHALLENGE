@@ -1,0 +1,40 @@
+# LEAN-KERNEL-CHALLENGE
+# Exclusion patterns for local development and system-generated artifacts
+
+# System files
+[Tt]humbs.db
+[Dd]esktop.ini
+.DS_Store
+
+# Environment and workspace configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.venv/
+venv/
+
+# Temporary and log files
+*.tmp
+*.log
+*.bak
+*.sav
+*.old
+
+# Exports fetched for local benchmarking, which are large and reproducible
+exports/
+*.ndjson.gz
+
+# Documentation and archive artifacts
+README.md.bak
+*.zip
+*.tar.gz
+*.rar
+*.7z

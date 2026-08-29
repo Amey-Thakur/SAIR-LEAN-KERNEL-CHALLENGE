@@ -1,0 +1,32 @@
+# LEAN-KERNEL-CHALLENGE
+# Persistence and attribute configuration for repository integrity
+
+# Line ending normalization
+* text=auto
+
+# Core source and documentation
+*.md text eol=lf diff=markdown
+*.py text eol=lf diff=python
+*.lean text eol=lf
+*.ndjson text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.cff text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+CITATION.cff text eol=lf
+
+# Binary asset management
+*.png binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.pdf binary
+*.ico binary
+
+# Project documentation metadata
+README.md text eol=lf diff=markdown
