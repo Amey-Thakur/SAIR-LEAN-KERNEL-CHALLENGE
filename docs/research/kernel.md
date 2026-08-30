@@ -92,6 +92,48 @@ unforgiving. Off by one on the major premise position and the recursor either
 never fires, which makes the checker incomplete, or fires on the wrong argument,
 which makes it wrong.
 
+## 5. Inductive blocks, which are not the kernel's to take on trust
+
+An export hands over an inductive block already carrying its constructors and its
+recursors, together with a set of integers: how many parameters, how many
+indices, how many fields each constructor has, how many minor premises the
+eliminator takes, whether it is K-like.
+
+None of that is evidence. All of it is derivable from the inductive types alone,
+and a kernel derives it.
+
+| Derived from the types | Not read from the export |
+| :--- | :--- |
+| Which recursors may exist, and their names | An exported recursor with any other name |
+| The eliminator's type | Its declared type, which is compared against the derived one |
+| Each rule's field count and right hand side | The `nfields` and `rhs` as given |
+| `numParams`, `numIndices`, `numMotives`, `numMinors` | The declared integers |
+| Whether the block may eliminate large, and whether it is K-like | The declared `k` |
+
+Three separate checks sit alongside the derivation, each guarding a different way
+of proving `False`.
+
+**Strict positivity.** A constructor field may mention the type being defined
+only as its own result. An occurrence to the left of an arrow permits a fixed
+point, and a fixed point over `False` is a proof of it.
+
+**The universe bound.** Every field must live in a universe the inductive
+reaches, unless the inductive is a `Prop`, where impredicativity makes the
+constraint vacuous. Without the bound, a universe can hold something the size of
+itself.
+
+**Large elimination.** A `Prop` may only eliminate outside `Prop` when it is a
+syntactic subsingleton: no constructors, or exactly one whose every field is
+either a proof or an index of the result. Otherwise proof irrelevance makes its
+inhabitants equal, and an eliminator that could tell them apart proves `False`.
+
+> [!CAUTION]
+> The subtlety in the last one is the meaning of "is a `Prop`". A type declared
+> at `Sort u`, for a universe parameter `u`, is not a `Prop` syntactically, but
+> it becomes one at `u := 0`. A checker whose "is this level surely non-zero"
+> test answers yes for a parameter hands such a type a large eliminator, and the
+> `u := 0` instance then proves `False`. The test must answer no.
+
 ## Where the time actually goes
 
 | Cost | Scale |

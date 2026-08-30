@@ -12,23 +12,20 @@
 from __future__ import annotations
 
 from .environment import Declaration, Environment
-from .term import (Expr, Level, Name, ZERO, apps, bvar, const, instantiate,
+from .errors import Declined, Rejected
+from .inductive import check_block
+from .term import (Expr, Level, Name, ZERO, apps, bvar, collect_consts,
+                   const, instantiate,
                    instantiate_levels, level_eq, lift, mk_imax,
                    normalise_level, pi, sort, succ, unfold_apps)
-
-
-class Rejected(Exception):
-    """The environment is not well typed, and here is why."""
-
-
-class Declined(Exception):
-    """This checker does not handle the input, and will not pretend to."""
 
 
 class TypeChecker:
     def __init__(self, env: Environment, fuel: int = 200_000):
         self.env = env
         self.fuel = fuel
+        self._blocks_done: set = set()
+        self.checked: set = set()
 
     # -- fuel ---------------------------------------------------------------
 
@@ -254,14 +251,61 @@ class TypeChecker:
 
     def check_declaration(self, decl: Declaration) -> None:
         """A declaration is well formed when its type is a type, and its value,
-        if it has one, inhabits that type."""
+        if it has one, inhabits that type.
+
+        A declaration that came out of an inductive block is not checked on its
+        own terms at all. Its type being well formed says nothing about whether
+        the block was entitled to declare it, which is exactly the gap a
+        fabricated recursor walks through."""
         if decl.is_unsafe:
             raise Declined(f"unsafe declaration {decl.name}")
+
+        block = self.env.block_of(decl.name)
+        if block is not None:
+            self.check_block(block)
+            return
+
+        self.require_declared(decl.name, [decl.type, decl.value])
         self.ensure_sort(decl.type)
         if decl.has_value:
             vty = self.infer(decl.value)
             if not self.is_def_eq(vty, decl.type):
                 raise Rejected(f"{decl.name} does not have its declared type")
+        self.checked.add(decl.name)
+
+    def check_block(self, block) -> None:
+        """Validate an inductive block once, however many of its declarations
+        are visited. A block is admitted whole, because its constructors and
+        recursors legitimately refer to each other and to the types."""
+        if id(block) in self._blocks_done:
+            return
+        own = {d.name for d in block.declarations()}
+        terms = [d.type for d in block.declarations()]
+        terms += [rule.rhs for r in block.recursors for rule in r.rules]
+        self.require_declared(next(iter(block.types)).name, terms, own)
+        check_block(self, block)
+        self._blocks_done.add(id(block))
+        self.checked |= own
+
+    def require_declared(self, who, terms, own=frozenset()) -> None:
+        """Everything a declaration mentions must already have been checked.
+
+        Lean's kernel gets this for free, because it adds one declaration at a
+        time and a forward reference is simply not expressible. Reading a whole
+        export first loses that, and losing it is not cosmetic: without this,
+        `def loop : False := loop` type checks against its own declared type and
+        the checker accepts a proof of False. It is also what guarantees that a
+        recursor's inductive block has been validated before any term is allowed
+        to reduce through it."""
+        deps = set()
+        for t in terms:
+            if t is not None:
+                collect_consts(t, deps)
+        missing = sorted(deps - self.checked - set(own), key=str)
+        if missing:
+            raise Rejected(
+                f"{who} refers to {', '.join(str(m) for m in missing)}, which "
+                f"the export has not declared before this point")
 
 
 def _name(s: str) -> Name:

@@ -63,6 +63,7 @@ checkers against a shared suite.
 | Difficulty | Why it bites |
 | :--- | :--- |
 | **No shortcuts** | A checker that trusts the exporter has not checked anything |
+| **Inductives** | Recursors have to be derived from the types, not read off the file |
 | **Definitional equality** | Deciding it needs reduction, and reduction can run for a long time |
 | **Universes** | Levels carry constraints of their own, with `max` and `imax` to normalise |
 | **Recursors** | Iota reduction has to fire exactly when the major premise is a constructor |
@@ -123,6 +124,7 @@ flowchart LR
 | **[src/](src/README.md)** | The checker: export reader, terms, environment, type checker, harness |
 | [src/export_format/](src/export_format/) | The NDJSON reader, and the tables it rebuilds terms from |
 | [src/kernel/](src/kernel/) | Names, levels, expressions, the environment, inference, reduction, equality |
+| [src/kernel/inductive.py](src/kernel/inductive.py) | Derives what an inductive block may declare, and refuses the rest |
 | [src/harness/](src/harness/) | The arena contract: read the input, check it, exit `0`, `1` or `2` |
 | [tests/](tests/) | What is actually verified, run with `python -m pytest` |
 
@@ -145,8 +147,8 @@ python -m pytest tests -q
 
 > [!NOTE]
 > What is not implemented yet, and what that means for an acceptance, is listed
-> in [open questions](docs/research/open_questions.md). The recursor derivation
-> is the entry there worth reading first.
+> in [open questions](docs/research/open_questions.md). The quotient primitives
+> are the entry there worth reading first.
 
 The cards in this README are generated, not drawn by hand:
 

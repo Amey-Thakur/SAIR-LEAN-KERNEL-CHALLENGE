@@ -103,11 +103,17 @@ def instantiate_level(l: Level, subst: dict) -> Level:
 
 
 def normalise_level(l: Level) -> Level:
-    """Enough normalisation to decide the equalities a kernel actually meets:
-    imax collapses when its right side is known zero or known successor, and
-    max folds when both sides share a base."""
+    """Collapse what can be collapsed without knowing the parameters: imax goes
+    when its right side is known zero or known successor, and max folds when
+    both sides share a base. What survives is decided by level_leq."""
     if l.kind == "succ":
-        return succ(normalise_level(l.a))
+        a = normalise_level(l.a)
+        if a.kind == "max":
+            # succ distributes over max, which is what lets max(u,w)+1 be
+            # compared against u+1 at all. It does not distribute over imax:
+            # imax(a,0) is 0, so succ of it is 1, while max(succ a, 1) is not.
+            return normalise_level(mk_max(succ(a.a), succ(a.b)))
+        return succ(a)
     if l.kind in ("max", "imax"):
         a, b = normalise_level(l.a), normalise_level(l.b)
         if l.kind == "imax":
@@ -115,7 +121,7 @@ def normalise_level(l: Level) -> Level:
                 return ZERO
             if b.kind == "succ":
                 return normalise_level(mk_max(a, b))
-            if level_eq(a, b):
+            if _struct_eq(a, b):
                 return a
             return mk_imax(a, b)
         if a.kind == "zero":
@@ -124,15 +130,14 @@ def normalise_level(l: Level) -> Level:
             return a
         ba, na = level_offset(a)
         bb, nb = level_offset(b)
-        if level_eq(ba, bb):
+        if _struct_eq(ba, bb):
             return a if na >= nb else b
         return mk_max(a, b)
     return l
 
 
-def level_eq(x: Level, y: Level) -> bool:
-    """Structural equality after normalisation."""
-    x, y = normalise_level(x), normalise_level(y)
+def _struct_eq(x: Level, y: Level) -> bool:
+    """Syntactic equality of two already normalised levels."""
     if x.kind != y.kind:
         return False
     if x.kind == "zero":
@@ -140,31 +145,105 @@ def level_eq(x: Level, y: Level) -> bool:
     if x.kind == "param":
         return x.name == y.name
     if x.kind == "succ":
-        return level_eq(x.a, y.a)
-    return level_eq(x.a, y.a) and level_eq(x.b, y.b)
+        return _struct_eq(x.a, y.a)
+    return _struct_eq(x.a, y.a) and _struct_eq(x.b, y.b)
+
+
+def level_params_in(l: Level) -> frozenset:
+    """Every universe parameter a level mentions."""
+    if l.kind == "param":
+        return frozenset({l.name})
+    if l.kind == "succ":
+        return level_params_in(l.a)
+    if l.kind in ("max", "imax"):
+        return level_params_in(l.a) | level_params_in(l.b)
+    return frozenset()
+
+
+def level_is_zero(l: Level) -> bool:
+    """True when the level is zero for every assignment of its parameters."""
+    return normalise_level(l).kind == "zero"
+
+
+def level_never_zero(l: Level) -> bool:
+    """True when the level is non-zero for every assignment of its parameters.
+
+    A bare parameter answers False, because `u` may be instantiated at zero.
+    Getting this one wrong in the other direction is how a universe polymorphic
+    `Sort u` inductive is granted large elimination it must not have, and from
+    there proof irrelevance gives a proof of False."""
+    l = normalise_level(l)
+    if l.kind == "succ":
+        return True
+    if l.kind == "max":
+        return level_never_zero(l.a) or level_never_zero(l.b)
+    if l.kind == "imax":
+        # imax(a, b) is max(a, b) when b is non-zero, and zero when b is zero,
+        # so the whole thing is non-zero exactly when b is.
+        return level_never_zero(l.b)
+    return False
+
+
+def _undetermined_param(l: Level):
+    """A parameter whose zero status is blocking an imax from collapsing, or
+    None when nothing in this level is waiting on one."""
+    if l.kind == "succ":
+        return _undetermined_param(l.a)
+    if l.kind == "max":
+        return _undetermined_param(l.a) or _undetermined_param(l.b)
+    if l.kind == "imax":
+        if not level_is_zero(l.b) and not level_never_zero(l.b):
+            names = level_params_in(l.b)
+            if names:
+                return sorted(names, key=str)[0]
+        return _undetermined_param(l.a) or _undetermined_param(l.b)
+    return None
 
 
 def level_leq(x: Level, y: Level) -> bool:
-    """Is x <= y for every assignment of its parameters. Conservative: a false
-    answer only ever costs a rejection the caller can report honestly."""
-    x, y = normalise_level(x), normalise_level(y)
-    if level_eq(x, y):
+    """Is x <= y for every assignment of its parameters.
+
+    Complete on the fragment a kernel meets: max distributes, and an imax whose
+    right side has undetermined zero status is settled by trying that parameter
+    at zero and at a successor, which is the only thing its value can turn on."""
+    return _leq(normalise_level(x), normalise_level(y))
+
+
+def _leq(x: Level, y: Level) -> bool:
+    if _struct_eq(x, y):
         return True
     if x.kind == "zero":
         return True
+
+    if x.kind == "max":
+        return _leq(x.a, y) and _leq(x.b, y)
+    if y.kind == "max" and (_leq(x, y.a) or _leq(x, y.b)):
+        return True
+
+    for side in (x, y):
+        p = _undetermined_param(side)
+        if p is not None:
+            return (_leq_at(x, y, p, ZERO)
+                    and _leq_at(x, y, p, succ(param(p))))
+
     bx, nx = level_offset(x)
     by, ny = level_offset(y)
-    if level_eq(bx, by):
+    if _struct_eq(bx, by) or bx.kind == "zero":
         return nx <= ny
-    if x.kind == "max":
-        return level_leq(x.a, y) and level_leq(x.b, y)
-    if y.kind == "max":
-        return level_leq(x, y.a) or level_leq(x, y.b)
-    if y.kind == "imax":
-        return level_leq(x, y.b)
-    if x.kind == "imax":
-        return level_leq(x.a, y) and level_leq(x.b, y)
     return False
+
+
+def _leq_at(x: Level, y: Level, p: Name, v: Level) -> bool:
+    """The ordering under one assignment of a single parameter."""
+    return _leq(normalise_level(instantiate_level(x, {p: v})),
+                normalise_level(instantiate_level(y, {p: v})))
+
+
+def level_eq(x: Level, y: Level) -> bool:
+    """Equality is the ordering both ways, so that max is commutative and the
+    imax rules are applied in full rather than compared syntactically."""
+    x, y = normalise_level(x), normalise_level(y)
+    return _struct_eq(x, y) or (_leq(x, y) and _leq(y, x))
 
 
 # -- expressions -----------------------------------------------------------
@@ -265,6 +344,63 @@ def unfold_apps(e: Expr):
         e = e.fn
     args.reverse()
     return e, args
+
+
+def unfold_pi(e: Expr, limit=None):
+    """Split a Pi telescope into its binders and its body.
+
+    Binder domains are returned as they stand, so a domain still refers to the
+    binders outside it by the indices it already carries. Callers that move a
+    telescope into a wider context relocate the domains themselves."""
+    binders = []
+    while (limit is None or len(binders) < limit) and e.kind in ("forall", "mdata"):
+        if e.kind == "mdata":
+            e = e.body
+            continue
+        binders.append((e.name, e.dom, e.binder))
+        e = e.body
+    return binders, e
+
+
+def fold_pi(binders, body: Expr) -> Expr:
+    """Rebuild a Pi telescope from the binders unfold_pi produced."""
+    for name, dom, binder in reversed(binders):
+        body = Expr("forall", dom=dom, body=body, name=name, binder=binder)
+    return body
+
+
+def fold_lam(binders, body: Expr) -> Expr:
+    """The same telescope, as lambdas. A recursor rule's right hand side is the
+    minor premise wrapped in exactly the binders its type quantifies over."""
+    for name, dom, binder in reversed(binders):
+        body = Expr("lam", dom=dom, body=body, name=name, binder=binder)
+    return body
+
+
+def collect_consts(e: Expr, out=None) -> set:
+    """Every constant a term mentions, which is what a declaration depends on."""
+    if out is None:
+        out = set()
+    if e is None:
+        return out
+    if e.kind == "const":
+        out.add(e.name)
+    for part in (e.fn, e.arg, e.dom, e.body, e.val):
+        if part is not None:
+            collect_consts(part, out)
+    return out
+
+
+def has_const(e: Expr, names) -> bool:
+    """Does this term mention any of these constants anywhere."""
+    if e is None:
+        return False
+    if e.kind == "const":
+        return e.name in names
+    for part in (e.fn, e.arg, e.dom, e.body, e.val):
+        if part is not None and has_const(part, names):
+            return True
+    return False
 
 
 def lift(e: Expr, d: int, cutoff: int = 0) -> Expr:

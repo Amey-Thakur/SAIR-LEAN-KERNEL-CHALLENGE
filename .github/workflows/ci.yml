@@ -97,3 +97,18 @@ jobs:
           set +e
           IN=/tmp/unknown.ndjson python -m src.harness.check_export
           test $? -eq 2
+
+      # These two are the arena's own exports, kept verbatim. Both are proofs of
+      # False, and both are the kind a checker accepts by believing what the
+      # export said about its own inductive block rather than deriving it.
+      - name: The arena's fabricated recursor exits 1
+        run: |
+          set +e
+          python -m src.harness.check_export tests/fixtures/extra-rec.ndjson
+          test $? -eq 1
+
+      - name: The arena's large elimination attack exits 1
+        run: |
+          set +e
+          python -m src.harness.check_export tests/fixtures/large-elim-param.ndjson
+          test $? -eq 1

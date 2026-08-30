@@ -17,8 +17,10 @@ Four layers, in one direction. Nothing calls upwards.
 ```mermaid
 flowchart TD
     H["harness/<br>exit 0, 1 or 2"] --> T["kernel/typechecker<br>infer, whnf, is_def_eq"]
+    T --> I["kernel/inductive<br>derive the eliminators"]
     T --> N["kernel/environment<br>declarations by name"]
     T --> V["kernel/term<br>names, levels, expressions"]
+    I --> V
     N --> V
     R["export_format/reader<br>NDJSON to environment"] --> N
     R --> V
@@ -31,6 +33,7 @@ flowchart TD
 | [term.py](../src/kernel/term.py) | De Bruijn indices, universe levels, substitution | Environments, declarations, typing |
 | [environment.py](../src/kernel/environment.py) | Declarations and their order | Whether any of them is well typed |
 | [reader.py](../src/export_format/reader.py) | The NDJSON format | What a well typed term is |
+| [inductive.py](../src/kernel/inductive.py) | What an inductive block is entitled to declare | Files, exit codes, the arena |
 | [typechecker.py](../src/kernel/typechecker.py) | Inference, reduction, equality | Files, exit codes, the arena |
 | [check_export.py](../src/harness/check_export.py) | The arena contract | How any of the above works |
 
@@ -70,6 +73,8 @@ The harness turns the result into an exit code and adds nothing to it.
 | [test_term.py](../tests/test_term.py) | Shifting and substitution, where an off-by-one changes which variable a proof is about without failing |
 | [test_reader.py](../tests/test_reader.py) | That leniency is absent: forward references, unknown items and truncation all raise |
 | [test_typechecker.py](../tests/test_typechecker.py) | What is accepted, and in equal measure what is refused |
+| [test_inductive.py](../tests/test_inductive.py) | That derived eliminators are the ones Lean generates and actually reduce, and that every structural claim an export makes is checked |
+| [test_dependency_order.py](../tests/test_dependency_order.py) | That nothing may prove itself |
 | [test_harness.py](../tests/test_harness.py) | That no path from an unread input reaches `0` |
 
 Half of the type checker tests are refusals on purpose. A checker that only ever

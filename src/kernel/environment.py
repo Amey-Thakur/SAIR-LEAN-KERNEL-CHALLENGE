@@ -60,17 +60,35 @@ class Declaration:
 
 
 class Environment:
-    """Declarations by name, in the order the export gave them."""
+    """Declarations by name, in the order the export gave them.
+
+    Inductive blocks are kept whole alongside the flat declarations. A recursor
+    only means anything relative to the types it was declared with, so throwing
+    the grouping away would leave nothing to check an exported recursor
+    against."""
 
     def __init__(self):
         self._decls: dict = {}
         self.order: list = []
+        self.blocks: list = []
+        self._block_of: dict = {}
 
     def add(self, decl: Declaration) -> None:
         if decl.name in self._decls:
             raise KeyError(f"declaration already present: {decl.name}")
         self._decls[decl.name] = decl
         self.order.append(decl.name)
+
+    def add_block(self, block) -> None:
+        """Register an inductive block and every declaration it contains."""
+        self.blocks.append(block)
+        for decl in block.declarations():
+            self.add(decl)
+            self._block_of[decl.name] = block
+
+    def block_of(self, name: Name):
+        """The inductive block a declaration came from, if it came from one."""
+        return self._block_of.get(name)
 
     def get(self, name: Name) -> Optional[Declaration]:
         return self._decls.get(name)

@@ -71,7 +71,8 @@ lie, and those cases are the sharpest statement of what this problem actually is
 | Taken | From |
 | :--- | :--- |
 | Declining is a declared position, not a failure | `vow-lean-kernel`, `mini`, `nyaya`, and the arena's own `declines` field |
-| The export's structural claims are the attack surface | `extra-rec` and `ctor-num-fields` |
+| The export's structural claims are the attack surface, so the eliminators are derived rather than read | `extra-rec` and `ctor-num-fields` |
+| Re-deriving rather than trusting the export's own fields | `kiota`, which does the same for K-likeness and iota |
 | Representation is where the time goes | `nanobruijn`'s offsets and depth-stratified caches |
 | A Python entry is not automatically pointless | `rpylean` |
 

@@ -69,6 +69,25 @@ def ill_typed():
     ]
 
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
+def _arena(name):
+    """One of the arena's own test exports, kept verbatim. These are the real
+    attacks, not reconstructions of them."""
+    return (FIXTURES / name).read_text(encoding="utf-8").splitlines()
+
+
+@pytest.fixture
+def extra_rec_export():
+    return _arena("extra-rec.ndjson")
+
+
+@pytest.fixture
+def large_elim_export():
+    return _arena("large-elim-param.ndjson")
+
+
 @pytest.fixture
 def unsupported():
     """A line the reader does not recognise. It has to decline, because

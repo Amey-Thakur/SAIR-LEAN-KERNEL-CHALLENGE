@@ -15,6 +15,7 @@ import json
 from typing import Iterable
 
 from ..kernel.environment import Declaration, Environment, RecursorRule
+from ..kernel.inductive import InductiveBlock
 from ..kernel.term import (ANON, Expr, Level, Name, ZERO, app, bvar, const,
                            lam, let_, lit_nat, lit_str, mk_imax, mk_max,
                            param, pi, proj, sort, succ)
@@ -161,32 +162,42 @@ def _read_decl(obj: dict, t: Tables, env: Environment) -> bool:
         return True
     if "inductive" in obj:
         d = obj["inductive"]
-        for ind in d.get("types", []):
-            env.add(Declaration("inductive", t.name(ind["name"]),
-                                _levels(ind["levelParams"], t), t.expr(ind["type"]),
-                                num_params=ind.get("numParams", 0),
-                                num_indices=ind.get("numIndices", 0),
-                                ctors=tuple(t.name(c) for c in ind.get("ctors", [])),
-                                is_reflexive=ind.get("isReflexive", False),
-                                is_unsafe=ind.get("isUnsafe", False)))
-        for c in d.get("ctors", []):
-            env.add(Declaration("ctor", t.name(c["name"]), _levels(c["levelParams"], t),
-                                t.expr(c["type"]), induct=t.name(c["induct"]),
-                                cidx=c.get("cidx", 0), num_params=c.get("numParams", 0),
-                                num_fields=c.get("numFields", 0),
-                                is_unsafe=c.get("isUnsafe", False)))
-        for r in d.get("recs", []):
-            rules = tuple(RecursorRule(t.name(rr["ctor"]), rr["nfields"],
-                                       t.expr(rr["rhs"]))
-                          for rr in r.get("rules", []))
-            env.add(Declaration("recursor", t.name(r["name"]),
-                                _levels(r["levelParams"], t), t.expr(r["type"]),
-                                num_params=r.get("numParams", 0),
-                                num_indices=r.get("numIndices", 0),
-                                num_motives=r.get("numMotives", 0),
-                                num_minors=r.get("numMinors", 0),
-                                rules=rules, k=r.get("k", False),
-                                is_unsafe=r.get("isUnsafe", False)))
+        types = tuple(
+            Declaration("inductive", t.name(ind["name"]),
+                        _levels(ind["levelParams"], t), t.expr(ind["type"]),
+                        num_params=ind.get("numParams", 0),
+                        num_indices=ind.get("numIndices", 0),
+                        ctors=tuple(t.name(c) for c in ind.get("ctors", [])),
+                        is_reflexive=ind.get("isReflexive", False),
+                        is_unsafe=ind.get("isUnsafe", False))
+            for ind in d.get("types", []))
+        ctors = tuple(
+            Declaration("ctor", t.name(c["name"]), _levels(c["levelParams"], t),
+                        t.expr(c["type"]), induct=t.name(c["induct"]),
+                        cidx=c.get("cidx", 0), num_params=c.get("numParams", 0),
+                        num_fields=c.get("numFields", 0),
+                        is_unsafe=c.get("isUnsafe", False))
+            for c in d.get("ctors", []))
+        recs = tuple(
+            Declaration("recursor", t.name(r["name"]),
+                        _levels(r["levelParams"], t), t.expr(r["type"]),
+                        num_params=r.get("numParams", 0),
+                        num_indices=r.get("numIndices", 0),
+                        num_motives=r.get("numMotives", 0),
+                        num_minors=r.get("numMinors", 0),
+                        rules=tuple(RecursorRule(t.name(rr["ctor"]), rr["nfields"],
+                                                 t.expr(rr["rhs"]))
+                                    for rr in r.get("rules", [])),
+                        k=r.get("k", False), is_unsafe=r.get("isUnsafe", False))
+            for r in d.get("recs", []))
+        if not types:
+            raise MalformedExport("an inductive block with no types")
+        # The block is registered whole. Splitting it here would lose the only
+        # record of which recursors this declaration is entitled to produce.
+        env.add_block(InductiveBlock(
+            level_params=tuple(types[0].level_params),
+            num_params=types[0].num_params,
+            types=types, ctors=ctors, recursors=recs))
         return True
     return False
 
