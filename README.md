@@ -31,7 +31,7 @@ codes and nothing else.
 
 <br>
 
-<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel.gif" alt="An exported declaration entering a kernel, rebuilt and verified, leaving as a single exit code." width="100%"></a>
+<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel.gif" alt="A Lean submission entering the kernel, verified, and its instruction count measured, drawn in the SAIR Foundation card style." width="100%"></a>
 
 </div>
 
@@ -52,9 +52,9 @@ negotiate.
 That makes the kernel the one place in the system where being wrong is fatal and
 being slow is expensive at the same time.
 
-Run from the SAIR Foundation, alongside the
+Run from the SAIR Foundation as **Stage 1**, alongside the
 [Lean Kernel Arena](https://arena.lean-lang.org/), which benchmarks independent
-checkers against a shared suite.
+checkers against a shared suite. Submissions open on 15 September 2026.
 
 <br>
 
@@ -150,7 +150,9 @@ python -m pytest tests -q
 > in [open questions](docs/research/open_questions.md). The quotient primitives
 > are the entry there worth reading first.
 
-The cards in this README are generated, not drawn by hand:
+The cards in this README are generated, not drawn by hand. The animation
+follows the SAIR Foundation's own hero art for this competition, with the
+geometry measured off their original rather than redrawn by eye:
 
 ```bash
 python .github/scripts/build_animation.py .github/assets
