@@ -205,7 +205,6 @@ FS_SUB = fit(UIB, "LEAN SUBMISSION", 181 * S)
 FS_EQ = fit(UIB, "f x = y", 172 * S)
 FS_KERNEL = fit(UIB, "KERNEL", 192 * S)
 FS_COUNT = fit(UIB, "Instruction count", 280 * S)
-FS_WORD = fit(UIL, "SAIR", 165 * S)
 
 
 # -- the three stages -------------------------------------------------------
@@ -307,18 +306,18 @@ def background():
 BG = background()
 
 
-def logo(im, pen):
-    mark = Image.open(os.path.join(ASSETS, "sair-mark-hero.png")).convert("RGBA")
-    # the crop carries 2px of margin above and left of the mark itself
-    scale = S * SS
-    mark = mark.resize((round(mark.width * scale), round(mark.height * scale)),
-                       Image.LANCZOS)
-    im.paste(mark, (round((lx(70)) * SS), round((y(88)) * SS)), mark)
+def logo(im):
+    """The real mark and wordmark, lifted from SAIR's own artwork.
 
-    font = f(UIL, FS_WORD)
-    natural = sum(_scratch.textlength(c, font=font) for c in "SAIR")
-    tracking = ((191 * S) * SS - natural) / (SS * 3)
-    pen.text((lx(184), y(87)), "SAIR", font, INK, "lt", tracking)
+    Setting the wordmark in a substitute face was never going to be right: it
+    is a specific typeface, and an approximation of a logo reads as a mistake
+    rather than as a homage. This is their image, keyed off the gradient it was
+    drawn on and recomposited onto ours."""
+    art = Image.open(os.path.join(ASSETS, "sair-logo.png")).convert("RGBA")
+    w = 303 * S                                  # the width it has in the hero
+    h = round(art.height * (w / art.width))
+    art = art.resize((round(w * SS), h * SS), Image.LANCZOS)
+    im.paste(art, (round(lx(72) * SS), round(y(87) * SS)), art)
 
 
 def frame(i):
@@ -326,7 +325,7 @@ def frame(i):
     im = BG.copy()
     pen = Pen(ImageDraw.Draw(im))
 
-    logo(im, pen)
+    logo(im)
     pen.text((x(1404), y(248)), "Instruction count", f(UIB, FS_COUNT), INK, "lt")
 
     stage_document(pen, t)
@@ -341,10 +340,10 @@ def frame(i):
 def check_glyphs():
     """A missing glyph is a hollow box, and a hollow box ships silently."""
     missing = set()
-    for face in (UIB, UIL):
+    for face in (UIB,):
         font = f(face, 24)
         for line in ("LEAN SUBMISSION", "f x = y", "KERNEL",
-                     "Instruction count", "SAIR"):
+                     "Instruction count"):
             for ch in line:
                 if ch != " " and font.getmask(ch).getbbox() is None:
                     missing.add((os.path.basename(face), ch))
@@ -431,7 +430,7 @@ if __name__ == "__main__":
     frames = [frame(i) for i in range(FRAMES)]
     check_layout(frames[0])
 
-    path = os.path.join(out, "lean-kernel.gif")
+    path = os.path.join(out, "lean-kernel-sair.gif")
     q = quantise(frames)
     q[0].save(path, save_all=True, append_images=q[1:],
               duration=DURATION, loop=0, optimize=True, disposal=1)

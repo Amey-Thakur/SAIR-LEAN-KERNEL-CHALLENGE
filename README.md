@@ -31,7 +31,7 @@ codes and nothing else.
 
 <br>
 
-<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel.gif" alt="A Lean submission entering the kernel, verified, and its instruction count measured, drawn in the SAIR Foundation card style." width="100%"></a>
+<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel-sair.gif" alt="A Lean submission entering the kernel, the kernel accepting it, and the instruction count being measured, in the SAIR Foundation card style." width="100%"></a>
 
 </div>
 
@@ -116,6 +116,16 @@ flowchart LR
 
 <br>
 
+<div align="center">
+
+<img src=".github/assets/lean-kernel.gif" alt="The export read into tables, rebuilt into terms, checked, and leaving as one of three exit codes." width="100%">
+
+<sub>The same contract in detail: what the reader rebuilds, what the kernel decides, and the three ways it can answer.</sub>
+
+</div>
+
+<br>
+
 ## What is where
 
 | Path | What it holds |
@@ -150,12 +160,14 @@ python -m pytest tests -q
 > in [open questions](docs/research/open_questions.md). The quotient primitives
 > are the entry there worth reading first.
 
-The cards in this README are generated, not drawn by hand. The animation
-follows the SAIR Foundation's own hero art for this competition, with the
-geometry measured off their original rather than redrawn by eye:
+Both cards in this README are generated, not drawn by hand. The first follows
+the SAIR Foundation's own hero art for this competition, with the geometry
+measured off their original rather than redrawn by eye; the second is this
+repository's own diagram of the contract:
 
 ```bash
-python .github/scripts/build_animation.py .github/assets
+python .github/scripts/build_sair_card.py .github/assets
+python .github/scripts/build_briefing_card.py .github/assets
 python .github/scripts/build_social_preview.py .github/social-preview.png
 ```
 
