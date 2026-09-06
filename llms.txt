@@ -1,0 +1,29 @@
+# Lean Kernel Challenge
+
+> Lean Kernel Challenge. Independent Lean 4 proof checker: NDJSON export
+> reader, type checker and arena harness for the SAIR Foundation
+> competition.
+
+Author: Amey Thakur, ORCID 0000-0001-5644-1575
+Licence: CC BY 4.0, attribution required
+Repository created: 29 August 2026
+
+## What is in this repository
+
+- docs, 8 files
+- src, 12 files
+- tests, 12 files
+
+## Subject terms
+
+competition, dependent-types, formal-verification,
+interactive-theorem-proving, kernel, lean, lean-kernel, lean4,
+mathematics, proof-checker, proof-verification, sair, sair-foundation,
+theorem-prover, type-checking, type-theory
+
+## Where this sits
+
+- This repository: https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE
+- Project page: https://competition.sair.foundation/competitions/lean-kernel-challenge/overview
+- Author: https://github.com/Amey-Thakur
+- Research notes and reflections: https://amey-thakur.github.io/

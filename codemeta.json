@@ -1,21 +1,54 @@
 {
-  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
-  "@type": "SoftwareSourceCode",
-  "license": "https://spdx.org/licenses/CC-BY-4.0.html",
-  "name": "SAIR Lean Kernel Challenge",
-  "version": "1.0.0",
-  "runtimePlatform": "Python 3.10+",
-  "author": [
-    {
-      "@type": "Person",
-      "givenName": "Amey",
-      "familyName": "Thakur",
-      "id": "https://orcid.org/0000-0001-5644-1575"
-    }
-  ],
-  "description": "An independent proof checker for Lean 4 for the SAIR foundation challenge. A reader for the lean4export NDJSON format, a kernel that rebuilds and verifies every declaration, and a harness that answers on the Lean Kernel Arena exit code contract, declining what it does not implement rather than accepting it.",
-  "programmingLanguage": [
-    "Python",
-    "Markdown"
-  ]
+    "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+    "@type": "SoftwareSourceCode",
+    "name": "SAIR Lean Kernel Challenge",
+    "description": "An independent proof checker for Lean 4 for the SAIR foundation challenge. A reader for the lean4export NDJSON format, a kernel that rebuilds and verifies every declaration, and a harness that answers on the Lean Kernel Arena exit code contract, declining what it does not implement rather than accepting it.",
+    "identifier": "SAIR-LEAN-KERNEL-CHALLENGE",
+    "license": "https://spdx.org/licenses/CC-BY-4.0.html",
+    "programmingLanguage": [
+        "Python",
+        "Markdown"
+    ],
+    "author": [
+        {
+            "@type": "Person",
+            "givenName": "Amey",
+            "familyName": "Thakur",
+            "id": "https://orcid.org/0000-0001-5644-1575"
+        }
+    ],
+    "dateCreated": "2026-08-29",
+    "dateReleased": "2026-08-29",
+    "codeRepository": "https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE",
+    "developmentStatus": "complete",
+    "runtimePlatform": "Python 3.10+",
+    "keywords": [
+        "Competition",
+        "Dependent Types",
+        "Formal Verification",
+        "Interactive Theorem Proving",
+        "Kernel",
+        "Lean",
+        "Lean Kernel",
+        "Lean 4",
+        "Mathematics",
+        "Proof Checker",
+        "Proof Verification",
+        "SAIR",
+        "SAIR Foundation",
+        "Theorem Prover",
+        "Type Checking",
+        "Type Theory",
+        "Inductives",
+        "Universes",
+        "Recursors",
+        "Scale",
+        "Amey Thakur",
+        "amey",
+        "ameythakur",
+        "amey-thakur",
+        "ameyarc"
+    ],
+    "url": "https://competition.sair.foundation/competitions/lean-kernel-challenge/overview",
+    "version": "1.0.0"
 }

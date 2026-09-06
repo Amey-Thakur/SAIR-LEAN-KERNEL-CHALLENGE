@@ -17,3 +17,7 @@ keywords:
   - type checking
   - formal verification
   - dependent type theory
+identifiers:
+  - type: other
+    value: "2026-08-29"
+    description: "Date this repository was created on GitHub."
