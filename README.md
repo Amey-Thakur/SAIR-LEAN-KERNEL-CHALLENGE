@@ -24,9 +24,9 @@ codes and nothing else.
 
 [![License](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey)](LICENSE)
 [![SAIR](https://img.shields.io/badge/SAIR-Lean_Kernel-340825)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
-[![Status](https://img.shields.io/badge/Status-In_Progress-D29922)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
+[![Status](https://img.shields.io/badge/Status-In_Progress-2EA043)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
 [![Technology](https://img.shields.io/badge/Technology-Python_%7C_Lean_4-8250DF)](https://lean-lang.org/)
-[![Format](https://img.shields.io/badge/Export_Format-3.1.0-2EA043)](https://github.com/leanprover/lean4export/blob/master/format_ndjson.md)
+[![Format](https://img.shields.io/badge/Export_Format-3.1.0-D29922)](https://github.com/leanprover/lean4export/blob/master/format_ndjson.md)
 [![Author](https://img.shields.io/badge/Author-Amey_Thakur-0969DA)](https://github.com/Amey-Thakur)
 
 <br>
