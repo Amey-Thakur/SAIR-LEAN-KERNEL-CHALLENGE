@@ -1,58 +1,33 @@
 ## Name: ci.yml
-## Purpose: Gate the checker on the two things that cannot be argued about.
-## Description: The suite is half acceptances and half refusals, because a
-##   checker that only ever accepts passes every acceptance test perfectly. The
-##   second job re-runs the harness on the fixtures and asserts the exit codes
-##   directly, since the exit code is the only thing the arena reads and a test
-##   that calls the function is not the same as a process that returns 0. No
-##   install step: the checker is standard library only by design, and this job
-##   is where that stays true. Third-party actions are pinned to commit SHAs.
-## Tech Stack: GitHub Actions, Python
+## Purpose: Gate both halves of this repository, which answer different
+##   questions and so are checked separately.
+## Description: The Stage 1 job is the one that matters for the competition: it
+##   builds the Lean artifact and audits it, because an artifact with an
+##   unproved goal or one discharged outside the kernel is disqualified however
+##   fast it is. The checker jobs cover the independent proof checker, whose
+##   suite is half refusals and whose exit codes are asserted as a process
+##   rather than as a function call. Third-party actions are pinned to commit
+##   SHAs, except lean-action, which is pinned to its major tag because the
+##   toolchain it installs is already pinned by stage1/lean-toolchain.
+## Tech Stack: GitHub Actions, Lean 4, Python
 ## License: CC BY 4.0
 ## Authors: Amey Thakur (https://github.com/Amey-Thakur)
-## Date: 2026-08-29
+## Date: 2026-09-08
 
 name: CI
 
 on:
   push:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
 
 jobs:
-  tests:
-    name: The suite, on the oldest supported Python
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.13"]
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install pytest, and nothing else
-        run: python -m pip install --disable-pip-version-check pytest
-
-      - name: Run the suite
-        run: python -m pytest tests -q
-
-  exit-codes:
-    name: The three exit codes, end to end
+  stage1:
+    name: The Stage 1 artifact builds and audits
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -61,8 +36,58 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Cheap, and independent of whether Lean installs: no unproved goals and
+      # nothing that leaves the kernel.
+      - name: Audit the sources
+        run: python tools/audit.py stage1
+
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: stage1
+          build: true
+          test: false
+          use-mathlib-cache: false
+
+      # `#print axioms` writes to the build output, so the artifact's real
+      # dependency list is read back out of it rather than trusted.
+      - name: Audit the axioms the proof depends on
+        working-directory: stage1
+        run: |
+          lake build 2>&1 | tee ../build.log
+          cd ..
+          python tools/audit.py stage1 --axioms build.log
+
+  checker:
+    name: The checker suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest, and nothing else
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run the suite
+        working-directory: checker
+        run: python -m pytest tests -q
+
+  exit-codes:
+    name: The checker's three exit codes, end to end
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checker
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
       # Written out here rather than imported from the tests, so that a change
-      # to the fixtures cannot quietly change what this job is asserting.
+      # to the fixtures cannot quietly change what this job asserts.
       - name: Build the fixtures
         run: |
           cat > /tmp/good.ndjson <<'EOF'
@@ -82,9 +107,7 @@ jobs:
           echo '{"someFutureItem":{"name":1}}' >> /tmp/unknown.ndjson
 
       - name: A well typed export exits 0
-        run: |
-          python -m src.harness.check_export /tmp/good.ndjson
-          test $? -eq 0
+        run: python -m src.harness.check_export /tmp/good.ndjson
 
       - name: An ill typed export exits 1
         run: |
@@ -98,16 +121,16 @@ jobs:
           IN=/tmp/unknown.ndjson python -m src.harness.check_export
           test $? -eq 2
 
-      # These two are the arena's own exports, kept verbatim. Both are proofs of
-      # False, and both are the kind a checker accepts by believing what the
-      # export said about its own inductive block rather than deriving it.
-      - name: The arena's fabricated recursor exits 1
+      # The arena's own exports, kept verbatim. Both are proofs of False, and
+      # both are accepted by a checker that believes what the file says about
+      # its own inductive block.
+      - name: The fabricated recursor exits 1
         run: |
           set +e
           python -m src.harness.check_export tests/fixtures/extra-rec.ndjson
           test $? -eq 1
 
-      - name: The arena's large elimination attack exits 1
+      - name: The large elimination attack exits 1
         run: |
           set +e
           python -m src.harness.check_export tests/fixtures/large-elim-param.ndjson

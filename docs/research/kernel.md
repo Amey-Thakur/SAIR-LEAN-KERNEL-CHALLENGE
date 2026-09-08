@@ -5,7 +5,7 @@
 **Four jobs, and each one is where the time goes.**
 
 [Documentation](../README.md) &nbsp;·&nbsp;
-[Type checker](../../src/kernel/typechecker.py) &nbsp;·&nbsp;
+[Type checker](../../checker/src/kernel/typechecker.py) &nbsp;·&nbsp;
 [Reference](https://ammkrn.github.io/type_checking_in_lean4/)
 
 </div>
@@ -150,4 +150,4 @@ Each of those is a claim that two things are the same, and none of the claims is
 checked by anything. That is the whole difficulty of this competition.
 
 **[Back to the documentation](../README.md)** &nbsp;·&nbsp;
-**[On to the rationale](../design_rationale.md)**
+**[On to the rationale](../../checker/docs/design_rationale.md)**

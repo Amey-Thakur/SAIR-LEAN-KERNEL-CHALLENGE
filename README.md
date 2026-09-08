@@ -4,34 +4,35 @@
 
 # Lean Kernel Challenge
 
-**Can a proof checker run faster without being trusted less?**
+**How little work can you leave the kernel, without leaving it anything to doubt?**
 
 <br>
 
-A proof is only worth what the thing that checks it is worth. This repository
-is an independent checker for Lean 4: it reads an exported environment, rebuilds
-every declaration from first principles, and answers with one of three exit
-codes and nothing else.
+Stage 1 hands you a trusted Lean specification and asks for two things back: an
+implementation, and a machine-checked proof that it agrees with the
+specification on every input. You are scored on the work a pinned Lean kernel
+performs while replaying that artifact. Correctness is the entry fee, not the
+score.
 
 <br>
 
 [Documentation](docs/README.md) &nbsp;·&nbsp;
-[Checker](src/README.md) &nbsp;·&nbsp;
+[Stage 1](stage1/README.md) &nbsp;·&nbsp;
 [Competition](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview) &nbsp;·&nbsp;
 [Discussions](https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE/discussions)
 
 <br>
 
-[![License](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey)](LICENSE)
 [![SAIR](https://img.shields.io/badge/SAIR-Lean_Kernel-340825)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
-[![Status](https://img.shields.io/badge/Status-In_Progress-2EA043)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
-[![Technology](https://img.shields.io/badge/Technology-Python_%7C_Lean_4-8250DF)](https://lean-lang.org/)
-[![Format](https://img.shields.io/badge/Export_Format-3.1.0-D29922)](https://github.com/leanprover/lean4export/blob/master/format_ndjson.md)
+[![Status](https://img.shields.io/badge/Status-Pre_launch-D29922)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
+[![Technology](https://img.shields.io/badge/Technology-Lean_4_%7C_Python-8250DF)](https://lean-lang.org/)
+[![Toolchain](https://img.shields.io/badge/Toolchain-v4.29.1-0969DA)](stage1/lean-toolchain)
 [![Author](https://img.shields.io/badge/Author-Amey_Thakur-0969DA)](https://github.com/Amey-Thakur)
+[![License](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey)](LICENSE)
 
 <br>
 
-<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel-sair.gif" alt="A Lean submission entering the kernel, the kernel accepting it, and the instruction count being measured, in the SAIR Foundation card style." width="100%"></a>
+<a href="https://github.com/Amey-Thakur" title="Amey Thakur on GitHub"><img src=".github/assets/lean-kernel-sair.gif" alt="A Lean submission entering the kernel, the kernel accepting it, and the instruction count being measured." width="100%"></a>
 
 </div>
 
@@ -39,146 +40,134 @@ codes and nothing else.
 
 <br>
 
-## The problem
+## The task
 
-Lean 4 is trusted because its kernel is small. Everything above it, the
-elaborator, the tactic framework, the macro system, can be as clever as it likes,
-because in the end a proof term has to survive a type checker that does not
-negotiate.
+Stage 1 is co-organised by the **Lean FRO** and the **SAIR Foundation**, with
+Joachim Breitner, Leonardo de Moura, Kim Morrison and Terence Tao.
 
-> Read an exported Lean environment. Rebuild every declaration. Decide whether
-> the proofs are well typed, and say so in an exit code.
+> For each problem the organisers provide a trusted Lean specification.
+> Submit an implementation optimised for kernel verification, and a
+> machine-checked proof that the implementation agrees with the specification
+> on every input.
 
-That makes the kernel the one place in the system where being wrong is fatal and
-being slow is expensive at the same time.
+The judge checks the correctness proof first. Then it measures the work a
+**pinned Lean kernel** performs while replaying the whole verified artifact and
+the checks generated for judge-selected inputs. Problems span algebra, number
+theory, combinatorics, cryptography and discrete mathematics, and are announced
+at launch.
 
-Run from the SAIR Foundation as **Stage 1**, alongside the
-[Lean Kernel Arena](https://arena.lean-lang.org/), which benchmarks independent
-checkers against a shared suite. Submissions open on 15 September 2026.
+> [!IMPORTANT]
+> This is not about making code run fast. The compiler is not involved in
+> scoring. A `#eval` that returns instantly says nothing, because the kernel
+> never sees the compiled code. What counts is how few steps the kernel needs
+> when it reduces your definitions while checking your proof.
 
 <br>
 
-## Why it is hard
+## What makes it hard
 
 | Difficulty | Why it bites |
 | :--- | :--- |
-| **No shortcuts** | A checker that trusts the exporter has not checked anything |
-| **Inductives** | Recursors have to be derived from the types, not read off the file |
-| **Definitional equality** | Deciding it needs reduction, and reduction can run for a long time |
-| **Universes** | Levels carry constraints of their own, with `max` and `imax` to normalise |
-| **Recursors** | Iota reduction has to fire exactly when the major premise is a constructor |
-| **Scale** | Mathlib is millions of declarations, so constant factors are the whole game |
-
-The first row is not a slogan. The arena feeds checkers exports that lie: one
-smuggles a fabricated recursor into `False`'s inductive block, another declares a
-one-field structure as having none so that eta collapses its inhabitants. Both
-are proofs of `False`, and neither is caught by getting reduction right. They are
-caught by not believing the export.
-
-There is also a structural tension that has nothing to do with speed.
-
-> [!IMPORTANT]
-> Every optimisation in a kernel is a claim that two things are the same. A
-> cache says a term already checked is still fine. Sharing says two pointers
-> mean one value. Fast paths say a cheap test implies an expensive one.
->
-> A wrong optimisation does not make the checker slow. It makes it accept a
-> false proof, which is the only failure that actually matters.
+| **Two objectives at once** | The implementation has to be cheap for the kernel *and* provable against the specification. The cheapest definitions are usually the hardest to prove correct |
+| **The kernel is not the compiler** | Reducibility attributes, `@[inline]`, and anything the elaborator does are irrelevant. Only definitional unfolding matters |
+| **Proof size is also cost** | The kernel type-checks the proof term. A tactic that closes a goal by producing an enormous term moves the cost rather than removing it |
+| **The fast exits are closed** | `native_decide` discharges a goal outside the kernel and leaves `Lean.ofReduceBool` in the axiom list. Under a scoring rule about kernel work, that is not a submission |
 
 <br>
 
-## The contract
+## What is here
 
-A checker reads the NDJSON export produced by
-[`lean4export`](https://github.com/leanprover/lean4export), format version
-**3.1.0**, and answers with an exit code.
+The official repository, playground, problem set and submission system arrive
+at launch. Until then this holds the parts that do not depend on them.
 
-```mermaid
-flowchart LR
-    E["export.ndjson<br>names, levels, exprs, declarations"] --> R["Rebuild<br>tables to terms"]
-    R --> K["Kernel<br>infer, whnf, defeq"]
-    K --> A["exit 0<br>accepted"]
-    K --> B["exit 1<br>rejected"]
-    K --> C["exit 2<br>declined"]
+| Path | What it holds |
+| :--- | :--- |
+| **[stage1/](stage1/README.md)** | The shape a submission takes: specification, implementation, agreement proof and the kernel-cost demonstrations, as a buildable Lake package |
+| **[tools/audit.py](tools/audit.py)** | The two disqualifying checks: no unproved goal, and no goal discharged outside the kernel |
+| **[docs/](docs/README.md)** | What the kernel does when it reduces, and where the cost goes |
+| **[checker/](checker/README.md)** | An independent proof checker for Lean 4. **Not a Stage 1 entry**, see below |
+
+<br>
+
+## The audit, before anything else
+
+Two things disqualify an artifact regardless of how fast it is, and both are
+cheap to rule out.
+
+```bash
+python tools/audit.py stage1
 ```
 
-| Code | Meaning |
+| Refused | Because |
 | :--- | :--- |
-| `0` | The environment type checks |
-| `1` | Something in it does not, and the checker is willing to say so |
-| `2` | The checker does not handle this input, and declines rather than guess |
-| anything else | A fault in the checker itself |
+| `sorry` | The goal is not proved |
+| `native_decide` | The goal was settled by the compiler, outside the kernel, and the axiom list says so |
 
-> [!CAUTION]
-> `2` is the honest answer when a feature is unimplemented. Returning `0`
-> because nothing was checked is the one outcome a proof checker must never
-> produce.
+The axiom list is the real test. A finished artifact should depend on nothing
+beyond `propext`, `Classical.choice` and `Quot.sound`. CI reads the output of
+`#print axioms` back out of the build and fails on anything else.
+
+<br>
+
+## Build it
+
+```bash
+cd stage1 && lake build          # needs elan; the toolchain is pinned
+python tools/audit.py stage1     # needs nothing
+```
+
+The Lean sources are deliberately small: they are the submission skeleton with
+one worked example, not a solution to a problem nobody has seen yet.
 
 <br>
 
 <div align="center">
 
-<img src=".github/assets/lean-kernel.gif" alt="The export read into tables, rebuilt into terms, checked, and leaving as one of three exit codes." width="100%">
+<img src=".github/assets/lean-kernel.gif" alt="An export read into tables, rebuilt into terms, checked, and leaving as one of three exit codes." width="100%">
 
-<sub>The same contract in detail: what the reader rebuilds, what the kernel decides, and the three ways it can answer.</sub>
+<sub>The card for the checker in <a href="checker/README.md">checker/</a>, which answers a different question.</sub>
 
 </div>
 
 <br>
 
-## What is where
+## About that checker
 
-| Path | What it holds |
-| :--- | :--- |
-| **[docs/](docs/README.md)** | The reading order: the format, the kernel, what is checked and what is declined |
-| **[src/](src/README.md)** | The checker: export reader, terms, environment, type checker, harness |
-| [src/export_format/](src/export_format/) | The NDJSON reader, and the tables it rebuilds terms from |
-| [src/kernel/](src/kernel/) | Names, levels, expressions, the environment, inference, reduction, equality |
-| [src/kernel/inductive.py](src/kernel/inductive.py) | Derives what an inductive block may declare, and refuses the rest |
-| [src/harness/](src/harness/) | The arena contract: read the input, check it, exit `0`, `1` or `2` |
-| [tests/](tests/) | What is actually verified, run with `python -m pytest` |
+> [!WARNING]
+> [`checker/`](checker/README.md) is aimed at the
+> [Lean Kernel Arena](https://github.com/leanprover/lean-kernel-arena), a
+> separate benchmark run by the Lean developers for independent proof checkers.
+> It is **not** a Stage 1 entry, and this repository originally treated it as
+> one. The arena asks you to *be* the kernel; Stage 1 asks you to give Lean's
+> own kernel less to do.
+
+It is kept because it works, and because what it gets right is the thing this
+subject turns on: it does not believe the file it is reading. Exports that lie
+about their own inductive block, and prove `False` as a result, are rejected.
+That is worth having even though it scores nothing here.
 
 <br>
 
-## Run it
+## Key dates
 
-Python 3.10 or newer. No third party packages are required to check an export.
+| | |
+| :--- | :--- |
+| Registration and team formation open | 26 August 2026 |
+| Official launch, problems announced | 15 September 2026 |
+| Submission deadline | 20 November 2026, 23:59 AoE |
+| Stage 2 begins | December 2026 |
 
-```bash
-python -m src.harness.check_export path/to/export.ndjson
-echo $?
-```
-
-The tests cover the reader and the kernel core:
-
-```bash
-python -m pytest tests -q
-```
-
-> [!NOTE]
-> What is not implemented yet, and what that means for an acceptance, is listed
-> in [open questions](docs/research/open_questions.md). The quotient primitives
-> are the entry there worth reading first.
-
-Both cards in this README are generated, not drawn by hand. The first follows
-the SAIR Foundation's own hero art for this competition, with the geometry
-measured off their original rather than redrawn by eye; the second is this
-repository's own diagram of the contract:
-
-```bash
-python .github/scripts/build_sair_card.py .github/assets
-python .github/scripts/build_briefing_card.py .github/assets
-python .github/scripts/build_social_preview.py .github/social-preview.png
-```
+Stage 1 is experimental, participants carry their own compute costs, and each
+person or organisation may join only one team.
 
 <br>
 
 ## Reading further
 
-- [Lean 4 export format](https://github.com/leanprover/lean4export/blob/master/format_ndjson.md), the specification this reader implements
-- [Lean Kernel Arena](https://arena.lean-lang.org/), the benchmark suite for independent checkers
-- [Type Checking in Lean 4](https://ammkrn.github.io/type_checking_in_lean4/), what a kernel has to do, in detail
-- [Lean4Lean](https://arxiv.org/abs/2403.14064), a Lean type checker verified in Lean
+- [The Lean Kernel Challenge](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview), the competition and its rules
+- [Type Checking in Lean 4](https://ammkrn.github.io/type_checking_in_lean4/), what the kernel does, in detail
+- [Lean FRO](https://lean-fro.org/), a co-organiser
+- [Lean Kernel Arena](https://github.com/leanprover/lean-kernel-arena), the other question, which [checker/](checker/README.md) answers
 
 <br>
 
@@ -186,15 +175,9 @@ python .github/scripts/build_social_preview.py .github/social-preview.png
 
 <div align="center">
 
-### SAIR Foundation competitions
+**[SAIR Foundation competitions index](https://github.com/Amey-Thakur/SAIR-FOUNDATION-INDEX)**
 
-| Repository | Challenge |
-| :--- | :--- |
-| [SAIR-LEAN-KERNEL-CHALLENGE](https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE) | Verified computation in the Lean 4 kernel |
-| [SAIR-ANDREWS-CURTIS-CHALLENGE](https://github.com/Amey-Thakur/SAIR-ANDREWS-CURTIS-CHALLENGE) | Short trivialisations of balanced presentations |
-| [SAIR-MODULAR-ARITHMETIC-CHALLENGE](https://github.com/Amey-Thakur/SAIR-MODULAR-ARITHMETIC-CHALLENGE) | Exact modular multiplication by neural induction |
-| [SAIR-INVERSE-GALOIS-PROBLEM-IGP24](https://github.com/Amey-Thakur/SAIR-INVERSE-GALOIS-PROBLEM-IGP24) | Inverse Galois Problem in degree 24 |
-| [SAIR-MATHEMATICS-DISTILLATION-CHALLENGE](https://github.com/Amey-Thakur/SAIR-MATHEMATICS-DISTILLATION-CHALLENGE) | Equational Theories, Stage 1 and Stage 2 |
+Every SAIR challenge, what each asks, and where the work lives.
 
 <br>
 

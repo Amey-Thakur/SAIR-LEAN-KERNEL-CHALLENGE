@@ -1,0 +1,5 @@
+name = "stage1"
+defaultTargets = ["Stage1"]
+
+[[lean_lib]]
+name = "Stage1"

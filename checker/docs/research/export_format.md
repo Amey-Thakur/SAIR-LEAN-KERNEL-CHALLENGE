@@ -116,4 +116,4 @@ everything above it then verifies the wrong environment perfectly.
 > then refuses, rather than a term nobody looked at.
 
 **[Back to the documentation](../README.md)** &nbsp;·&nbsp;
-**[On to the kernel](kernel.md)**
+**[On to the kernel](../../../docs/research/kernel.md)**

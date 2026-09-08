@@ -5,7 +5,7 @@
 **The checkers that already exist, and what each one demonstrated.**
 
 [Documentation](../README.md) &nbsp;·&nbsp;
-[Kernel](../research/kernel.md) &nbsp;·&nbsp;
+[Kernel](../../../docs/research/kernel.md) &nbsp;·&nbsp;
 [Arena](https://arena.lean-lang.org/)
 
 </div>

@@ -2,59 +2,57 @@
 
 # Documentation
 
-**The reasoning behind the checker, in the order it is worth reading.**
+**What Stage 1 asks, what the kernel costs, and where the other half of this repository fits.**
 
 [Back to the repository](../README.md) &nbsp;·&nbsp;
-[Checker](../src/README.md) &nbsp;·&nbsp;
+[Stage 1](../stage1/README.md) &nbsp;·&nbsp;
 [Competition](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
 
 </div>
 
 ---
 
-Read these in order and the decisions in `src/` stop looking arbitrary. Each one
-answers a question the next one depends on.
-
-## 1. What the competition actually demands
+## 1. The competition
 
 | Document | Question it answers |
 | :--- | :--- |
-| [competition/analysis.md](competition/analysis.md) | What is submitted, how it is invoked, and what the three exit codes commit the submitter to |
+| [competition/analysis.md](competition/analysis.md) | What is submitted, what the judge measures, and what disqualifies an artifact |
 
-## 2. What has to be read
-
-| Document | Question it answers |
-| :--- | :--- |
-| [research/export_format.md](research/export_format.md) | The NDJSON export, item by item: the three tables, the declarations, and what a reader is not allowed to do with an item it does not know |
-
-## 3. What has to be decided
+## 2. The kernel
 
 | Document | Question it answers |
 | :--- | :--- |
-| [research/kernel.md](research/kernel.md) | Reduction, definitional equality, universes and recursors: the four things a kernel is, and where each one is expensive |
-| [architecture.md](architecture.md) | What each directory is responsible for, and what it is deliberately not allowed to know |
-| [design_rationale.md](design_rationale.md) | Why declining is a first-class outcome, why reduction runs on a budget, and why no optimisation ships without an argument for why it is sound |
+| [research/kernel.md](research/kernel.md) | What the kernel does when it reduces, which is the thing being counted |
+| [stage1/kernel-cost.md](stage1/kernel-cost.md) | Where the cost actually goes, and the techniques that move it |
 
-## 4. What is already known
+## 3. The checker, which answers a different question
+
+[`checker/`](../checker/README.md) is an independent proof checker for Lean 4,
+aimed at the [Lean Kernel Arena](https://github.com/leanprover/lean-kernel-arena)
+rather than at this competition. Its own documentation lives with it:
 
 | Document | Question it answers |
 | :--- | :--- |
-| [literature/review.md](literature/review.md) | The independent checkers that already exist, what each one demonstrated, and what is left to try |
-| [research/open_questions.md](research/open_questions.md) | What is unsettled here: caching keys, sharing, the cost of proof irrelevance, and how much of Mathlib this reaches |
+| [checker/docs/architecture.md](../checker/docs/architecture.md) | What each layer is responsible for |
+| [checker/docs/design_rationale.md](../checker/docs/design_rationale.md) | Why declining is a first-class outcome |
+| [checker/docs/research/export_format.md](../checker/docs/research/export_format.md) | The NDJSON export, item by item |
+| [checker/docs/research/open_questions.md](../checker/docs/research/open_questions.md) | What is unfinished there |
+| [checker/docs/literature/review.md](../checker/docs/literature/review.md) | The other independent checkers |
 
 ## The one idea to take away
 
-Every optimisation in a proof checker is a claim that two things are the same.
+The two halves of this repository pull in opposite directions, and noticing
+that is the fastest way to understand the competition.
 
-A cache claims a term checked once does not need checking again. Sharing claims
-two pointers are one value. A fast path claims a cheap test implies an expensive
-one. Each claim is a small theorem, and none of them is checked by anything.
+The checker asks: *given an artifact, how do I verify it without trusting it?*
+Stage 1 asks: *given a kernel I cannot change, how do I hand it an artifact
+that is cheap to verify?* One is written from the side of the thing doing the
+checking, the other from the side of the thing being checked.
 
-That is why the interesting constraint here is not speed. It is that the cost of
-being wrong is not a slow answer, it is a false one, and a false acceptance is
-indistinguishable from a true one from the outside. So the honest structure is
-one where the parts that can be wrong are small, the parts that are unimplemented
-say so, and nothing gets faster without an argument for why it still holds.
+What they share is the reason either is hard. The kernel's cost is
+concentrated in reduction and definitional equality, so both questions come
+down to the same one: which reductions actually have to happen, and which only
+look as though they do.
 
 **[Back to the repository](../README.md)** &nbsp;·&nbsp;
-**[On to the checker](../src/README.md)**
+**[On to the competition](competition/analysis.md)**
