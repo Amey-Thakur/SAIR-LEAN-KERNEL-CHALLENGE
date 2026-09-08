@@ -6,6 +6,9 @@ is the only reason to write them as proofs rather than as comments.
 -/
 import Stage1.Impl
 import Stage1.Spec
+-- Agreement is imported for the axiom audit below, which needs the theorem
+-- itself to be in scope and not merely its dependencies.
+import Stage1.Agreement
 
 namespace Stage1.Cost
 
