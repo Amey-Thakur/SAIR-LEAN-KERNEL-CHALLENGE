@@ -182,7 +182,8 @@ Every SAIR challenge, what each asks, and where the work lives.
 <br>
 
 Prepared by **[Amey Thakur](https://github.com/Amey-Thakur)** &nbsp;·&nbsp;
-ORCID [0000-0001-5644-1575](https://orcid.org/0000-0001-5644-1575)
+ORCID [0000-0001-5644-1575](https://orcid.org/0000-0001-5644-1575) &nbsp;·&nbsp;
+SAIR [ID 25789315](https://sair.foundation/u/25789315)
 
 <sub>Released under <a href="LICENSE">CC BY 4.0</a>, with citation metadata in <a href="CITATION.cff">CITATION.cff</a>.</sub>
 
