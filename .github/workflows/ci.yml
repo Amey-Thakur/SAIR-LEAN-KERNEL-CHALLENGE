@@ -7,8 +7,8 @@
 ##   fast it is. The checker jobs cover the independent proof checker, whose
 ##   suite is half refusals and whose exit codes are asserted as a process
 ##   rather than as a function call. Third-party actions are pinned to commit
-##   SHAs, except lean-action, which is pinned to its major tag because the
-##   toolchain it installs is already pinned by stage1/lean-toolchain.
+##   SHAs. elan is installed from its own script and the Lean version it
+##   resolves is pinned by stage1/lean-toolchain.
 ## Tech Stack: GitHub Actions, Lean 4, Python
 ## License: CC BY 4.0
 ## Authors: Amey Thakur (https://github.com/Amey-Thakur)
@@ -41,21 +41,27 @@ jobs:
       - name: Audit the sources
         run: python tools/audit.py stage1
 
-      - uses: leanprover/lean-action@v1
-        with:
-          lake-package-directory: stage1
-          build: true
-          test: false
-          use-mathlib-cache: false
+      # elan is installed directly rather than through lean-action, so that
+      # `lake update` can create the manifest for this dependency-free package
+      # before anything tries to build it, and so that the build whose output
+      # the axiom audit reads is the only build that runs.
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh             || curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      # `#print axioms` writes to the build output, so the artifact's real
-      # dependency list is read back out of it rather than trusted.
-      - name: Audit the axioms the proof depends on
+      - name: Build the artifact
         working-directory: stage1
         run: |
+          lean --version
+          lake update
           lake build 2>&1 | tee ../build.log
-          cd ..
-          python tools/audit.py stage1 --axioms build.log
+
+      # `#print axioms` writes into the build output, so the artifact's real
+      # dependency list is read back out of it rather than trusted.
+      - name: Audit the axioms the proof depends on
+        run: python tools/audit.py stage1 --axioms build.log
 
   checker:
     name: The checker suite
