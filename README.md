@@ -23,12 +23,12 @@ score.
 
 <br>
 
+[![License](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey)](LICENSE)
 [![SAIR](https://img.shields.io/badge/SAIR-Lean_Kernel-340825)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
 [![Status](https://img.shields.io/badge/Status-Pre_launch-D29922)](https://competition.sair.foundation/competitions/lean-kernel-challenge/overview)
 [![Technology](https://img.shields.io/badge/Technology-Lean_4_%7C_Python-8250DF)](https://lean-lang.org/)
 [![Toolchain](https://img.shields.io/badge/Toolchain-v4.29.1-00838F)](stage1/lean-toolchain)
 [![Author](https://img.shields.io/badge/Author-Amey_Thakur-0969DA)](https://github.com/Amey-Thakur)
-[![License](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey)](LICENSE)
 
 <br>
 
