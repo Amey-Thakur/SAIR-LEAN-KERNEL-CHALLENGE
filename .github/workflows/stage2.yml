@@ -1,0 +1,83 @@
+## Name: stage2.yml
+## Purpose: Measure a competition submission against the baseline it has to
+##   beat, so that no optimisation is claimed without a number behind it.
+## Description: The competition ranks by kernel work, so a design argument is
+##   worth nothing until it is measured. This clones the upstream challenge at a
+##   pinned commit, builds the candidate inside the real problem package, checks
+##   that the proof closes and rests only on permitted axioms, and then times the
+##   kernel reducing `impl n` at every published group endpoint. The upstream
+##   worked example is measured in the same run, on the same runner, so the two
+##   numbers are comparable. Hardware instruction counts need perf_event_open,
+##   which a virtualised runner does not expose, so this reports wall time, which
+##   is what the upstream local evaluator reports too. It is not an official score.
+## Tech Stack: GitHub Actions, Lean 4, Python
+## License: CC BY 4.0
+## Authors: Amey Thakur (https://github.com/Amey-Thakur)
+## Date: 2026-09-20
+
+name: Stage 2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stage2/**"
+      - ".github/workflows/stage2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a change upstream cannot quietly move the baseline underneath a
+  # measurement.
+  UPSTREAM_SHA: 940f0a2ead23ef70ab1387edabb347e629111edd
+
+jobs:
+  partition:
+    name: partition, candidate against the worked example
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # The baseline first, so that a runner having a bad day shows up as both
+      # numbers moving rather than as an apparent win.
+      - name: Measure the upstream worked example
+        run: |
+          python stage2/bench.py --upstream upstream --problem partition \
+            --submission upstream/examples/partition/Submission.lean \
+            --label baseline --out baseline.json
+
+      - name: Measure the candidate
+        run: |
+          python stage2/bench.py --upstream upstream --problem partition \
+            --submission stage2/partition/Submission.lean \
+            --label candidate --out candidate.json
+
+      - name: Compare
+        if: always()
+        run: python stage2/compare.py baseline.json candidate.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: partition-measurements
+          path: "*.json"
