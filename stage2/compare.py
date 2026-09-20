@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # ==============================================================================
 # File: compare.py
-# Description: Prints two bench runs side by side and says which is faster, per
-#   case and in total. Both runs happen on the same runner in the same job, so
-#   the ratio between them survives the fact that the absolute numbers do not.
+# Description: Prints several bench runs side by side against the first one,
+#   per case and in total. Every run happens on the same runner in the same
+#   job, so the ratios between them survive the fact that the absolute numbers
+#   do not.
 #
-# Usage: py stage2/compare.py baseline.json candidate.json
+# Usage: py stage2/compare.py baseline.json candidate.json [more.json ...]
 # Author: Amey Thakur
 # License: CC BY 4.0
 # ==============================================================================
@@ -21,44 +22,63 @@ def load(path):
     p = pathlib.Path(path)
     if not p.exists():
         return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: compare.py BASELINE.json CANDIDATE.json")
+    if len(sys.argv) < 3:
+        print("usage: compare.py BASELINE.json RUN.json [RUN.json ...]")
         return 2
-    base, cand = load(sys.argv[1]), load(sys.argv[2])
 
-    for name, run in (("baseline", base), ("candidate", cand)):
+    runs = [(pathlib.Path(a).stem, load(a)) for a in sys.argv[1:]]
+    for name, run in runs:
         if run is None:
             print(f"  {name}: no measurements were written")
         elif run.get("build") != "ok":
             print(f"  {name}: {run.get('build')}")
-    if not base or not cand or base.get("build") != "ok" or cand.get("build") != "ok":
+
+    usable = [(n, r) for n, r in runs if r and r.get("build") == "ok"]
+    if len(usable) < 2:
+        print("  fewer than two runs completed; nothing to compare")
         return 1
 
-    cases = sorted({int(k) for k in base["cases"]} | {int(k) for k in cand["cases"]})
+    base_name, base = usable[0]
+    cases = sorted({int(k) for _, r in usable for k in r["cases"]})
+
+    head = f"  {'n':>4}  {base_name:>11}"
+    for name, _ in usable[1:]:
+        head += f"  {name:>11}  {'x':>8}"
     print()
-    print(f"  {'n':>4}  {'baseline':>10}  {'candidate':>10}  {'speedup':>9}")
-    print("  " + "-" * 40)
+    print(head)
+    print("  " + "-" * (len(head) - 2))
+
     for n in cases:
         b = base["cases"].get(str(n))
-        c = cand["cases"].get(str(n))
-        bs = f"{b:8.2f}s" if b is not None else "       --"
-        cs = f"{c:8.2f}s" if c is not None else "       --"
-        ratio = f"{b / c:8.2f}x" if b and c else "       --"
-        print(f"  {n:>4}  {bs:>10}  {cs:>10}  {ratio:>9}")
+        line = f"  {n:>4}  " + (f"{b:10.2f}s" if b is not None else "        -- ")
+        for _, r in usable[1:]:
+            c = r["cases"].get(str(n))
+            line += "  " + (f"{c:10.2f}s" if c is not None else "        -- ")
+            line += "  " + (f"{b / c:7.1f}x" if b and c else "      --")
+        print(line)
 
-    bt, ct = base.get("total_seconds"), cand.get("total_seconds")
-    print("  " + "-" * 40)
-    if bt and ct:
-        print(f"  {'total':>4}  {bt:8.2f}s  {ct:8.2f}s  {bt / ct:8.2f}x")
+    print("  " + "-" * (len(head) - 2))
+    bt = base.get("total_seconds")
+    line = f"  {'all':>4}  " + (f"{bt:10.2f}s" if bt else "        -- ")
+    for _, r in usable[1:]:
+        ct = r.get("total_seconds")
+        line += "  " + (f"{ct:10.2f}s" if ct else "        -- ")
+        line += "  " + (f"{bt / ct:7.1f}x" if bt and ct else "      --")
+    print(line)
+
+    ranked = [(r.get("total_seconds"), n) for n, r in usable if r.get("total_seconds")]
+    if ranked:
         print()
-        faster = "candidate" if ct < bt else "baseline"
-        print(f"  {faster} is faster on total kernel wall time")
-    else:
-        print("  no total: not every case completed")
+        for seconds, name in sorted(ranked):
+            print(f"  {name:>12}  {seconds:8.2f}s")
+        print(f"\n  fastest: {sorted(ranked)[0][1]}")
     print()
     print("  Wall time on a virtualised runner, not the judge's instruction count.")
     return 0

@@ -74,9 +74,19 @@ jobs:
             --submission stage2/partition/Submission.lean \
             --label candidate --out candidate.json
 
+      # The packed row is the design meant to win; the list row above is the
+      # one already known to work, and is kept so a failed experiment never
+      # costs the ground already taken.
+      - name: Measure the packed candidate
+        continue-on-error: true
+        run: |
+          python stage2/bench.py --upstream upstream --problem partition \
+            --submission stage2/partition/SubmissionPacked.lean \
+            --label packed --out packed.json
+
       - name: Compare
         if: always()
-        run: python stage2/compare.py baseline.json candidate.json
+        run: python stage2/compare.py baseline.json candidate.json packed.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
