@@ -112,35 +112,28 @@ def main() -> int:
         _write(args.out, result)
         return 1
 
+    # Starting Lean and reading the built module costs the same in every
+    # variant, and at the small sizes it is most of the measurement. It is
+    # measured once here and taken off each case, so what is reported is the
+    # reduction rather than the process.
+    overhead = _time_one(pkg, 0, 1, TIMEOUT[14])
+    result["overhead_seconds"] = round(overhead, 3) if overhead else None
+    print(f"  fixed overhead per measurement {overhead:.2f}s, subtracted below"
+          if overhead else "  overhead unmeasured; raw times reported")
+
     total = 0.0
     for n in CASES[args.problem]:
         want = partition_reference(n)
-        bench = pkg / "Bench.lean"
-        # The recursion and heartbeat caps are elaborator limits, not kernel
-        # ones; left at their defaults they measure the cap rather than the
-        # algorithm. Raising them for every variant keeps the comparison fair.
-        bench.write_text(
-            "import Submission\n"
-            "set_option maxRecDepth 1000000\n"
-            "set_option maxHeartbeats 0\n"
-            f"theorem bench : Submission.impl {n} = {want} := rfl\n",
-            encoding="utf-8")
-        try:
-            proc, seconds = run(["lake", "env", "lean", "Bench.lean"], cwd=pkg,
-                                timeout=TIMEOUT[n] * 4)
-        except subprocess.TimeoutExpired:
-            print(f"  n={n:>3}  TIMEOUT past {TIMEOUT[n] * 4}s")
-            result["cases"][n] = None
-            bench.unlink()
-            continue
-        bench.unlink()
-        if proc.returncode != 0:
-            print(f"  n={n:>3}  FAILED  {(proc.stdout + proc.stderr)[:400]}")
+        seconds = _time_one(pkg, n, want, TIMEOUT[n])
+        if seconds is None:
+            print(f"  n={n:>3}  did not produce a measurement")
             result["cases"][n] = None
             continue
-        total += seconds
-        result["cases"][n] = round(seconds, 3)
-        print(f"  n={n:>3}  p(n)={want:<9} {seconds:7.2f}s  (watchdog {TIMEOUT[n]}s)")
+        net = max(seconds - (overhead or 0.0), 0.0)
+        total += net
+        result["cases"][n] = round(net, 3)
+        print(f"  n={n:>3}  p(n)={want:<9} {net:7.2f}s net "
+              f"({seconds:.2f}s raw, watchdog {TIMEOUT[n]}s)")
 
     complete = all(v is not None for v in result["cases"].values())
     result["total_seconds"] = round(total, 2) if complete else None
@@ -148,6 +141,34 @@ def main() -> int:
           if complete else "  incomplete: no total")
     _write(args.out, result)
     return 0 if complete else 1
+
+
+def _time_one(pkg, n, want, watchdog):
+    """Time the kernel reducing `impl n` to its literal. None if it did not run.
+
+    The recursion and heartbeat caps are elaborator limits, not kernel ones;
+    left at their defaults they measure the cap rather than the algorithm.
+    Raising them for every variant alike keeps the comparison fair.
+    """
+    bench = pkg / "Bench.lean"
+    bench.write_text(
+        "import Submission\n"
+        "set_option maxRecDepth 1000000\n"
+        "set_option maxHeartbeats 0\n"
+        f"theorem bench : Submission.impl {n} = {want} := rfl\n",
+        encoding="utf-8")
+    try:
+        proc, seconds = run(["lake", "env", "lean", "Bench.lean"], cwd=pkg,
+                            timeout=watchdog * 4)
+    except subprocess.TimeoutExpired:
+        print(f"  n={n:>3}  TIMEOUT past {watchdog * 4}s")
+        bench.unlink()
+        return None
+    bench.unlink()
+    if proc.returncode != 0:
+        print(f"  n={n:>3}  FAILED  {(proc.stdout + proc.stderr)[:400]}")
+        return None
+    return seconds
 
 
 def _write(out, result):
