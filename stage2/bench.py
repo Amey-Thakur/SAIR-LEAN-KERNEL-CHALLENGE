@@ -64,6 +64,11 @@ def main() -> int:
     ap.add_argument("--submission", required=True)
     ap.add_argument("--label", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--sizes", default=None,
+                    help="comma-separated n values, in place of the judged ones. "
+                         "The judged sizes finish too fast to time on a "
+                         "virtualised runner, so larger ones are used to "
+                         "separate designs; the ordering carries over.")
     args = ap.parse_args()
 
     label = args.label or pathlib.Path(args.submission).parent.name
@@ -121,10 +126,13 @@ def main() -> int:
     print(f"  fixed overhead per measurement {overhead:.2f}s, subtracted below"
           if overhead else "  overhead unmeasured; raw times reported")
 
+    sizes = ([int(x) for x in args.sizes.split(",")] if args.sizes
+             else CASES[args.problem])
+
     total = 0.0
-    for n in CASES[args.problem]:
+    for n in sizes:
         want = partition_reference(n)
-        seconds = _time_one(pkg, n, want, TIMEOUT[n])
+        seconds = _time_one(pkg, n, want, TIMEOUT.get(n, 120))
         if seconds is None:
             print(f"  n={n:>3}  did not produce a measurement")
             result["cases"][n] = None
@@ -133,11 +141,11 @@ def main() -> int:
         total += net
         result["cases"][n] = round(net, 3)
         print(f"  n={n:>3}  p(n)={want:<9} {net:7.2f}s net "
-              f"({seconds:.2f}s raw, watchdog {TIMEOUT[n]}s)")
+              f"({seconds:.2f}s raw)")
 
     complete = all(v is not None for v in result["cases"].values())
     result["total_seconds"] = round(total, 2) if complete else None
-    print(f"  total {total:.2f}s over {len(CASES[args.problem])} cases"
+    print(f"  total {total:.2f}s over {len(sizes)} cases"
           if complete else "  incomplete: no total")
     _write(args.out, result)
     return 0 if complete else 1

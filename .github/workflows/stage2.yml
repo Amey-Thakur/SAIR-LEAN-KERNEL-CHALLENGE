@@ -84,6 +84,28 @@ jobs:
             --submission stage2/partition/SubmissionPacked.lean \
             --label packed --out packed.json
 
+      # The proof covers every `n`, but a reduction that disagrees with the
+      # specification at a small input would still be a defect worth catching
+      # early, and these cost almost nothing to check.
+      - name: The packed row agrees at small inputs
+        run: |
+          python stage2/bench.py --upstream upstream --problem partition \
+            --submission stage2/partition/SubmissionPacked.lean \
+            --sizes 0,1,2,3,4,5,6,7,8,9,10,11,12,13 \
+            --label packed-small --out packed-small.json
+
+      # At the judged sizes the packed row finishes inside the timer's
+      # resolution, so it is measured again where the work is large enough to
+      # see. The ordering between designs carries over; the absolute times do
+      # not, and are not claimed to.
+      - name: Measure the packed row where it is large enough to time
+        continue-on-error: true
+        run: |
+          python stage2/bench.py --upstream upstream --problem partition \
+            --submission stage2/partition/SubmissionPacked.lean \
+            --sizes 100,150,200,300 \
+            --label packed-large --out packed-large.json
+
       - name: Compare
         if: always()
         run: python stage2/compare.py baseline.json candidate.json packed.json
