@@ -116,9 +116,14 @@ def main() -> int:
     for n in CASES[args.problem]:
         want = partition_reference(n)
         bench = pkg / "Bench.lean"
+        # The recursion and heartbeat caps are elaborator limits, not kernel
+        # ones; left at their defaults they measure the cap rather than the
+        # algorithm. Raising them for every variant keeps the comparison fair.
         bench.write_text(
             "import Submission\n"
-            f"example : Submission.impl {n} = {want} := by rfl\n",
+            "set_option maxRecDepth 1000000\n"
+            "set_option maxHeartbeats 0\n"
+            f"theorem bench : Submission.impl {n} = {want} := rfl\n",
             encoding="utf-8")
         try:
             proc, seconds = run(["lake", "env", "lean", "Bench.lean"], cwd=pkg,

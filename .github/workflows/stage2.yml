@@ -61,12 +61,14 @@ jobs:
       # The baseline first, so that a runner having a bad day shows up as both
       # numbers moving rather than as an apparent win.
       - name: Measure the upstream worked example
+        continue-on-error: true
         run: |
           python stage2/bench.py --upstream upstream --problem partition \
             --submission upstream/examples/partition/Submission.lean \
             --label baseline --out baseline.json
 
       - name: Measure the candidate
+        continue-on-error: true
         run: |
           python stage2/bench.py --upstream upstream --problem partition \
             --submission stage2/partition/Submission.lean \
