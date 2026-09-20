@@ -367,8 +367,10 @@ theorem partAux_le_step (K : Nat) (ih : ∀ i, partAux K i ≤ 2 ^ (i + K)) :
     · have hge : K + 1 ≤ m := Nat.le_of_not_lt hlt
       rw [specSum_ge (partAux K) (K + 1) m (by omega) hge]
       have hhead : partAux K m ≤ 2 ^ (m + K) := ih m
-      have htail : partAux (K + 1) (m - (K + 1)) ≤ 2 ^ (m - (K + 1) + (K + 1)) :=
-        ihf (m - (K + 1)) (by omega)
+      -- stated through `specSum`, which is what the rewritten goal now holds;
+      -- `partAux (K+1)` is the same term but omega matches atoms syntactically
+      have htail : specSum (partAux K) (K + 1) (m - (K + 1))
+          ≤ 2 ^ (m - (K + 1) + (K + 1)) := ihf (m - (K + 1)) (by omega)
       rw [show m - (K + 1) + (K + 1) = m from by omega] at htail
       have hgrow : 2 ^ m ≤ 2 ^ (m + K) := Nat.pow_le_pow_right (by omega) (by omega)
       have hdouble : 2 ^ (m + (K + 1)) = 2 ^ (m + K) * 2 := by
