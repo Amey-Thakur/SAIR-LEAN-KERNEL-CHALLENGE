@@ -39,8 +39,12 @@ theorem lt_of_div_eq_zero {m d : Nat} (hd : 0 < d) (h : m / d = 0) : m < d := by
   cases Nat.lt_or_ge m d with
   | inl hlt => exact hlt
   | inr hge =>
+    -- `omega` drops any hypothesis dividing by a variable, so the
+    -- contradiction is taken out by hand: a quotient of zero cannot be a
+    -- successor.
     have hstep : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd hge
-    omega
+    rw [h] at hstep
+    exact Nat.noConfusion hstep
 
 /-! ## A width wide enough to hold any entry -/
 
