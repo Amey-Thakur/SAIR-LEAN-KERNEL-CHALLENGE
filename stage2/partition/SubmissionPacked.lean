@@ -16,9 +16,9 @@ integer, whatever the row's length. At `n = 36` that is 528 operations in place
 of roughly 32,000 list steps.
 
 Fields never carry into one another because `w` is wide enough to hold any
-entry: `partAux k m` is a sum of at most `m+1` terms each at most `(m+1)^(k-1)`,
-so `partAux k m ≤ (m+1)^k ≤ (n+1)^n < 2^w`. That bound is proved below, not
-assumed; it is the only thing between this representation and a wrong answer.
+entry: `partAux k m ≤ 2^(m+k)`, and both indices run no higher than `n`, so
+`w = 2n+1` bits are enough. That bound is proved below, not assumed; it is the
+only thing between this representation and a wrong answer.
 
 Everything is self-contained, so each lemma is about the exact function the
 kernel reduces.
@@ -46,43 +46,7 @@ theorem lt_of_div_eq_zero {m d : Nat} (hd : 0 < d) (h : m / d = 0) : m < d := by
     rw [h] at hstep
     exact Nat.noConfusion hstep
 
-/-! ## A width wide enough to hold any entry -/
-
-/-- Bit length, driven by fuel so the kernel reduces it structurally. -/
-def bitsAux : Nat → Nat → Nat
-  | 0,        _     => 0
-  | _ + 1,    0     => 0
-  | fuel + 1, v + 1 => bitsAux fuel ((v + 1) / 2) + 1
-
-/-- A length with `v < 2 ^ bits v`. -/
-def bits (v : Nat) : Nat := bitsAux v v
-
-theorem lt_two_pow_bitsAux : ∀ fuel v, v ≤ fuel → v < 2 ^ bitsAux fuel v := by
-  intro fuel
-  induction fuel with
-  | zero =>
-    intro v hv
-    have hz : v = 0 := Nat.le_zero.mp hv
-    subst hz
-    exact Nat.one_pos
-  | succ F ih =>
-    intro v hv
-    match v with
-    | 0 => exact Nat.one_pos
-    | V + 1 =>
-      have hhalf : (V + 1) / 2 ≤ F := by omega
-      have hrec := ih ((V + 1) / 2) hhalf
-      show V + 1 < 2 ^ (bitsAux F ((V + 1) / 2) + 1)
-      rw [Nat.pow_succ]
-      omega
-
-theorem lt_two_pow_bits (v : Nat) : v < 2 ^ bits v :=
-  lt_two_pow_bitsAux v v (Nat.le_refl v)
-
-/-- The field width used for inputs of size `n`. -/
-def width (n : Nat) : Nat := n * bits (n + 1) + 1
-
-/-! ## What the specification's sum can reach -/
+/-! ## Folding a sum, used by the sum lemmas below -/
 
 theorem foldl_add_start : ∀ (xs : List Nat) (a : Nat),
     xs.foldl (· + ·) a = a + xs.foldl (· + ·) 0 := by
@@ -94,55 +58,6 @@ theorem foldl_add_start : ∀ (xs : List Nat) (a : Nat),
     show xs.foldl (· + ·) (a + x) = a + xs.foldl (· + ·) (0 + x)
     rw [ih (a + x), ih (0 + x)]
     omega
-
-theorem sum_map_le (f : Nat → Nat) (C : Nat) (h : ∀ j, f j ≤ C) :
-    ∀ (xs : List Nat), (xs.map f).foldl (· + ·) 0 ≤ xs.length * C := by
-  intro xs
-  induction xs with
-  | nil => simp
-  | cons x xs ih =>
-    show (f x :: xs.map f).foldl (· + ·) 0 ≤ (xs.length + 1) * C
-    rw [List.foldl_cons, foldl_add_start, Nat.succ_mul]
-    have hx := h x
-    omega
-
-theorem partAux_le : ∀ k m, partAux k m ≤ (m + 1) ^ k := by
-  intro k
-  induction k with
-  | zero =>
-    intro m
-    match m with
-    | 0 => exact Nat.le_refl 1
-    | _ + 1 => exact Nat.zero_le 1
-  | succ K ih =>
-    intro m
-    have hterm : ∀ j, partAux K (m - j * (K + 1)) ≤ (m + 1) ^ K := fun j =>
-      Nat.le_trans (ih (m - j * (K + 1))) (Nat.pow_le_pow_left (by omega) K)
-    have hsum := sum_map_le _ _ hterm (List.range (m / (K + 1) + 1))
-    rw [List.length_range] at hsum
-    have hds : m / (K + 1) ≤ m := Nat.div_le_self m (K + 1)
-    have hcount : (m / (K + 1) + 1) * (m + 1) ^ K ≤ (m + 1) * (m + 1) ^ K :=
-      Nat.mul_le_mul_right _ (by omega)
-    show ((List.range (m / (K + 1) + 1)).map
-      (fun j => partAux K (m - j * (K + 1)))).foldl (· + ·) 0 ≤ (m + 1) ^ (K + 1)
-    rw [Nat.pow_succ, Nat.mul_comm ((m + 1) ^ K) (m + 1)]
-    exact Nat.le_trans hsum hcount
-
-/-- Every entry the table for `n` can hold fits in one field. -/
-theorem entry_lt (n k m : Nat) (hk : k ≤ n) (hm : m ≤ n) :
-    partAux k m < 2 ^ width n := by
-  have hb : n + 1 < 2 ^ bits (n + 1) := lt_two_pow_bits (n + 1)
-  have h1 : partAux k m ≤ (m + 1) ^ k := partAux_le k m
-  have h2 : (m + 1) ^ k ≤ (n + 1) ^ n :=
-    Nat.le_trans (Nat.pow_le_pow_left (by omega) k) (Nat.pow_le_pow_right (by omega) hk)
-  have h3 : (n + 1) ^ n ≤ (2 ^ bits (n + 1)) ^ n := Nat.pow_le_pow_left (by omega) n
-  have h4 : (2 ^ bits (n + 1)) ^ n = 2 ^ (n * bits (n + 1)) := by
-    rw [← Nat.pow_mul, Nat.mul_comm]
-  have h5 : 2 ^ width n = 2 ^ (n * bits (n + 1)) * 2 := by
-    show 2 ^ (n * bits (n + 1) + 1) = 2 ^ (n * bits (n + 1)) * 2
-    rw [Nat.pow_succ]
-  have h6 : 0 < 2 ^ (n * bits (n + 1)) := two_pow_pos _
-  omega
 
 /-! ## Digits
 
@@ -417,6 +332,69 @@ theorem sweepF_eq_specSum (d : Nat) (hd : 0 < d) (g : Nat → Nat) :
     · have hge : d ≤ m := Nat.le_of_not_lt hlt
       have hstep : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd hge
       rw [if_neg hlt, ih (m - d) (by omega), specSum_ge g d m hd hge]
+
+/-! ## A width wide enough to hold any entry
+
+Peeling one term off the specification's sum gives
+`partAux (k+1) m = partAux k m + partAux (k+1) (m - (k+1))`, and
+`partAux k m ≤ 2^(m+k)` follows from it: the first summand is at most `2^(m+k)`
+and the second at most `2^m`, and together they stay under `2^(m+k+1)`. Both
+indices run no higher than `n`, so `2n+1` bits hold any entry.
+
+The bound is crude, since the true values grow subexponentially. It only has to
+be provable and true. -/
+
+/-- The field width used for inputs of size `n`. -/
+def width (n : Nat) : Nat := 2 * n + 1
+
+theorem partAux_le_step (K : Nat) (ih : ∀ i, partAux K i ≤ 2 ^ (i + K)) :
+    ∀ fuel m, m ≤ fuel → partAux (K + 1) m ≤ 2 ^ (m + (K + 1)) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro m hm
+    have hm0 : m = 0 := Nat.le_zero.mp hm
+    subst hm0
+    show specSum (partAux K) (K + 1) 0 ≤ 2 ^ (0 + (K + 1))
+    rw [specSum_lt (partAux K) (K + 1) 0 (by omega)]
+    exact Nat.le_trans (ih 0) (Nat.pow_le_pow_right (by omega) (by omega))
+  | succ F ihf =>
+    intro m hm
+    show specSum (partAux K) (K + 1) m ≤ 2 ^ (m + (K + 1))
+    by_cases hlt : m < K + 1
+    · rw [specSum_lt (partAux K) (K + 1) m hlt]
+      exact Nat.le_trans (ih m) (Nat.pow_le_pow_right (by omega) (by omega))
+    · have hge : K + 1 ≤ m := Nat.le_of_not_lt hlt
+      rw [specSum_ge (partAux K) (K + 1) m (by omega) hge]
+      have hhead : partAux K m ≤ 2 ^ (m + K) := ih m
+      have htail : partAux (K + 1) (m - (K + 1)) ≤ 2 ^ (m - (K + 1) + (K + 1)) :=
+        ihf (m - (K + 1)) (by omega)
+      rw [show m - (K + 1) + (K + 1) = m from by omega] at htail
+      have hgrow : 2 ^ m ≤ 2 ^ (m + K) := Nat.pow_le_pow_right (by omega) (by omega)
+      have hdouble : 2 ^ (m + (K + 1)) = 2 ^ (m + K) * 2 := by
+        rw [show m + (K + 1) = (m + K) + 1 from by omega, Nat.pow_succ]
+      omega
+
+theorem partAux_le_two_pow : ∀ k m, partAux k m ≤ 2 ^ (m + k) := by
+  intro k
+  induction k with
+  | zero =>
+    intro m
+    match m with
+    | 0 => exact two_pow_pos 0
+    | _ + 1 => exact Nat.zero_le _
+  | succ K ih => intro m; exact partAux_le_step K ih m m (Nat.le_refl m)
+
+/-- Every entry the table for `n` can hold fits in one field. -/
+theorem entry_lt (n k m : Nat) (hk : k ≤ n) (hm : m ≤ n) :
+    partAux k m < 2 ^ width n := by
+  have h1 : partAux k m ≤ 2 ^ (m + k) := partAux_le_two_pow k m
+  have h2 : 2 ^ (m + k) ≤ 2 ^ (2 * n) := Nat.pow_le_pow_right (by omega) (by omega)
+  have h3 : 2 ^ width n = 2 ^ (2 * n) * 2 := by
+    show 2 ^ (2 * n + 1) = 2 ^ (2 * n) * 2
+    rw [Nat.pow_succ]
+  have h4 : 0 < 2 ^ (2 * n) := two_pow_pos _
+  omega
 
 /-! ## The table -/
 
