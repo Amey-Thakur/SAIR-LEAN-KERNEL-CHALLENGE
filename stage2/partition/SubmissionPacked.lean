@@ -36,10 +36,11 @@ theorem two_pow_pos : ∀ e : Nat, 0 < 2 ^ e := by
   | succ E ih => rw [Nat.pow_succ]; omega
 
 theorem lt_of_div_eq_zero {m d : Nat} (hd : 0 < d) (h : m / d = 0) : m < d := by
-  by_contra hc
-  have hge : d ≤ m := Nat.le_of_not_lt hc
-  have hstep : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd hge
-  omega
+  cases Nat.lt_or_ge m d with
+  | inl hlt => exact hlt
+  | inr hge =>
+    have hstep : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd hge
+    omega
 
 /-! ## A width wide enough to hold any entry -/
 
@@ -59,11 +60,11 @@ theorem lt_two_pow_bitsAux : ∀ fuel v, v ≤ fuel → v < 2 ^ bitsAux fuel v :
     intro v hv
     have hz : v = 0 := Nat.le_zero.mp hv
     subst hz
-    decide
+    exact Nat.one_pos
   | succ F ih =>
     intro v hv
     match v with
-    | 0 => decide
+    | 0 => exact Nat.one_pos
     | V + 1 =>
       have hhalf : (V + 1) / 2 ≤ F := by omega
       have hrec := ih ((V + 1) / 2) hhalf
@@ -115,6 +116,7 @@ theorem partAux_le : ∀ k m, partAux k m ≤ (m + 1) ^ k := by
       Nat.le_trans (ih (m - j * (K + 1))) (Nat.pow_le_pow_left (by omega) K)
     have hsum := sum_map_le _ _ hterm (List.range (m / (K + 1) + 1))
     rw [List.length_range] at hsum
+    have hds : m / (K + 1) ≤ m := Nat.div_le_self m (K + 1)
     have hcount : (m / (K + 1) + 1) * (m + 1) ^ K ≤ (m + 1) * (m + 1) ^ K :=
       Nat.mul_le_mul_right _ (by omega)
     show ((List.range (m / (K + 1) + 1)).map
@@ -170,7 +172,7 @@ theorem pack_zero (w : Nat) : ∀ (len : Nat) (f : Nat → Nat),
   | succ L ih =>
     intro f h
     show f 0 + 2 ^ w * pack w (fun m => f (m + 1)) L = 0
-    rw [h 0 (by omega), ih _ (fun m hm => h (m + 1) (by omega))]
+    rw [h 0 (by omega), ih _ (fun m hm => h (m + 1) (by omega)), Nat.mul_zero]
 
 theorem pack_add (w : Nat) : ∀ (len : Nat) (f g : Nat → Nat),
     pack w f len + pack w g len = pack w (fun m => f m + g m) len := by
@@ -192,9 +194,14 @@ theorem pack_extend (w : Nat) : ∀ (len extra : Nat) (f : Nat → Nat),
   induction len with
   | zero =>
     intro extra f h
+    rw [Nat.zero_add]
+    show pack w f extra = 0
     exact pack_zero w extra f (fun m _ => h m (Nat.zero_le m))
   | succ L ih =>
     intro extra f h
+    -- `L + 1 + extra` adds on the right, so it only unfolds once the `+ 1`
+    -- is on the outside; `pack` matches on that successor.
+    rw [show L + 1 + extra = (L + extra) + 1 from by omega]
     show f 0 + 2 ^ w * pack w (fun m => f (m + 1)) (L + extra)
         = f 0 + 2 ^ w * pack w (fun m => f (m + 1)) L
     rw [ih extra (fun m => f (m + 1)) (fun m hm => h (m + 1) (by omega))]
@@ -204,13 +211,16 @@ theorem pack_lt (w : Nat) : ∀ (len : Nat) (f : Nat → Nat),
     (∀ m, m < len → f m < 2 ^ w) → pack w f len < 2 ^ (w * len) := by
   intro len
   induction len with
-  | zero => intro _ _; decide
+  | zero =>
+    intro _ _
+    show (0 : Nat) < 2 ^ 0
+    exact Nat.one_pos
   | succ L ih =>
     intro f h
     have hrest := ih (fun m => f (m + 1)) (fun m hm => h (m + 1) (by omega))
     have h0 := h 0 (by omega)
     have hpow : 2 ^ (w * (L + 1)) = 2 ^ w * 2 ^ (w * L) := by
-      rw [Nat.mul_add, Nat.mul_one, Nat.pow_add]
+      rw [Nat.mul_add, Nat.mul_one, Nat.pow_add, Nat.mul_comm (2 ^ (w * L)) (2 ^ w)]
     have hstep : 2 ^ w * (pack w (fun m => f (m + 1)) L + 1) ≤ 2 ^ w * 2 ^ (w * L) :=
       Nat.mul_le_mul_left _ (by omega)
     rw [Nat.mul_add, Nat.mul_one] at hstep
@@ -226,17 +236,19 @@ theorem pack_split (w : Nat) : ∀ (len extra : Nat) (f : Nat → Nat),
   induction len with
   | zero =>
     intro extra f
-    show pack w f extra = 0 + 2 ^ (w * 0) * pack w (fun m => f (m + 0)) extra
-    rw [Nat.mul_zero, Nat.pow_zero, Nat.one_mul, Nat.zero_add]
+    rw [Nat.zero_add, Nat.mul_zero, Nat.pow_zero, Nat.one_mul]
+    show pack w f extra = 0 + pack w (fun m => f (m + 0)) extra
+    rw [Nat.zero_add]
     exact pack_congr w extra f (fun m => f (m + 0)) (fun m _ => rfl)
   | succ L ih =>
     intro extra f
     have hpow : 2 ^ (w * (L + 1)) = 2 ^ w * 2 ^ (w * L) := by
-      rw [Nat.mul_add, Nat.mul_one, Nat.pow_add]
+      rw [Nat.mul_add, Nat.mul_one, Nat.pow_add, Nat.mul_comm (2 ^ (w * L)) (2 ^ w)]
     have hshift : ∀ m, f (m + (L + 1)) = (fun i => f (i + 1)) (m + L) := by
       intro m
       show f (m + (L + 1)) = f (m + L + 1)
       rw [Nat.add_assoc]
+    rw [show L + 1 + extra = (L + extra) + 1 from by omega]
     show f 0 + 2 ^ w * pack w (fun m => f (m + 1)) (L + extra)
         = (f 0 + 2 ^ w * pack w (fun m => f (m + 1)) L)
           + 2 ^ (w * (L + 1)) * pack w (fun m => f (m + (L + 1))) extra
@@ -244,6 +256,7 @@ theorem pack_split (w : Nat) : ∀ (len extra : Nat) (f : Nat → Nat),
         pack_congr w extra (fun m => f (m + (L + 1))) (fun m => f (m + L + 1))
           (fun m _ => hshift m),
         Nat.mul_add, Nat.mul_assoc]
+    omega
 
 /-- Cutting a longer row down to its bottom `len` fields. -/
 theorem pack_trunc (w len extra : Nat) (f : Nat → Nat)
@@ -396,7 +409,7 @@ theorem sweepF_eq_specSum (d : Nat) (hd : 0 < d) (g : Nat → Nat) :
     intro m hm
     show g m + (if m < d then 0 else sweepF d g Jp (m - d)) = specSum g d m
     by_cases hlt : m < d
-    · rw [if_pos hlt, specSum_lt g d m hlt]
+    · rw [if_pos hlt, specSum_lt g d m hlt, Nat.add_zero]
     · have hge : d ≤ m := Nat.le_of_not_lt hlt
       have hstep : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd hge
       rw [if_neg hlt, ih (m - d) (by omega), specSum_ge g d m hd hge]
@@ -425,11 +438,12 @@ theorem rowsP_correct (n : Nat) : ∀ k, k ≤ n →
     have h0 : cut (n + 1) (partAux 0) 0 = 1 := by
       show (if 0 < n + 1 then partAux 0 0 else 0) = 1
       rw [if_pos (by omega)]
+      rfl
     have hrest : ∀ m, m < n → cut (n + 1) (partAux 0) (m + 1) = 0 := by
       intro m _
       show (if m + 1 < n + 1 then partAux 0 (m + 1) else 0) = 0
       by_cases hc : m + 1 < n + 1
-      · rw [if_pos hc]
+      · rw [if_pos hc]; rfl
       · rw [if_neg hc]
     show (1 : Nat) = cut (n + 1) (partAux 0) 0
         + 2 ^ width n * pack (width n) (fun m => cut (n + 1) (partAux 0) (m + 1)) n
@@ -453,6 +467,7 @@ theorem rowsP_correct (n : Nat) : ∀ k, k ≤ n →
       have hJm : m / (K + 1) ≤ n / (K + 1) := Nat.div_le_div_right (by omega)
       rw [sweepF_congr (K + 1) _ _ (n / (K + 1)) m hagree,
           sweepF_eq_specSum (K + 1) hd (partAux K) (n / (K + 1)) m hJm]
+      rfl
     have hbound : ∀ m, m < n + 1 →
         sweepF (K + 1) (cut (n + 1) (partAux K)) (n / (K + 1)) m < 2 ^ width n := by
       intro m hm
