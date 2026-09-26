@@ -1,0 +1,143 @@
+name: ca-rule110
+
+## Builds a ca-rule110 candidate inside the real problem package and checks
+## three things a local machine here cannot: that the proof closes, that it
+## rests only on permitted axioms, and that the kernel agrees with the
+## specification's own answers.
+##
+## There is no Lean toolchain on the authoring machine, so this workflow is the
+## only place a proof is ever checked. It is deliberately fast: the package has
+## no Mathlib dependency, so a run is a Lean download and a build.
+##
+## Authors: Amey Thakur (https://github.com/Amey-Thakur)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stage2/ca-rule110/**"
+      - ".github/workflows/ca.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a change upstream cannot move the target underneath a proof.
+  UPSTREAM_SHA: 940f0a2ead23ef70ab1387edabb347e629111edd
+
+jobs:
+  check:
+    name: candidate against the locked spec
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # The algorithm is settled in Python before any Lean is written, so a
+      # failure here is a failure of the design rather than of the proof, and
+      # the two are worth telling apart.
+      - name: Re-check the design against the specification
+        run: python stage2/ca-rule110/model.py
+
+      # Every lemma name in a proof written without a toolchain is a guess.
+      # This compiles the guesses on their own, so a wrong name is reported by
+      # itself rather than buried in a wall of errors from the real proof.
+      # It does not fail the run: the inventory is the output.
+      - name: Probe which core lemmas actually exist
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          cp ../../../stage2/ca-rule110/Probe.lean .
+          lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          echo "--- names that did not resolve ---"
+          grep -E "unknown (identifier|constant)" ../../../probe.log || echo "(none)"
+
+      - name: Place the candidate in the real problem package
+        run: |
+          cp stage2/ca-rule110/Submission.lean upstream/problems/ca-rule110/Submission.lean
+          echo "--- candidate ---"
+          wc -l upstream/problems/ca-rule110/Submission.lean
+
+      - name: Build, which is where the proof is actually checked
+        id: build
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tee ../../../build.log
+
+      # A proof that closes on a forbidden axiom is a rejection, not a win.
+      - name: Check the axioms are permitted
+        if: steps.build.outcome == 'success'
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          printf 'import Submission\n#print axioms Submission.impl_correct\n' > Axioms.lean
+          lake env lean Axioms.lean | tee ../../../axioms.txt
+          if grep -qiE "sorryAx|native" ../../../axioms.txt; then
+            echo "FORBIDDEN AXIOM"; exit 1
+          fi
+
+      # The proof says impl equals the spec for every n. These cases check the
+      # kernel actually reduces it to the right literal, which a proof of the
+      # wrong statement would not.
+      - name: Reduce the judged cases and compare with the specification
+        if: steps.build.outcome == 'success'
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          python - <<'EOF' > Cases.lean
+          import json, pathlib
+          cases = json.loads(pathlib.Path(
+              "../../../stage2/ca-rule110/cases.json").read_text())["cases"]
+          print("import Submission")
+          print("namespace CheckCases")
+          for i, c in enumerate(cases):
+              print(f"theorem c{i} : Submission.impl {c['n']} = {c['value']} := by rfl")
+          print("end CheckCases")
+          EOF
+          wc -l Cases.lean
+          lake env lean Cases.lean
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### ca-rule110"
+            echo '```'
+            tail -40 build.log 2>/dev/null || echo "no build log"
+            echo '```'
+            if [ -f axioms.txt ]; then echo "axioms:"; cat axioms.txt; fi
+            if [ -f probe.log ]; then
+              echo "### lemma probe"
+              echo '```'
+              grep -E "unknown (identifier|constant)|error" probe.log | head -30 || echo "(all names resolved)"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ca-logs
+          path: |
+            build.log
+            axioms.txt
+            probe.log
+          if-no-files-found: warn
