@@ -32,7 +32,6 @@ section BitwiseTestBit
 -- Bits above a number's width are zero, which is what makes the rotations
 -- wrap correctly rather than leak.
 #check @Nat.testBit_lt_two_pow
-#check @Nat.lt_two_pow_iff_testBit_eq_false
 
 -- The mask is 2^256 - 1, so every bit below 256 is set.
 #check @Nat.testBit_two_pow_sub_one
@@ -101,7 +100,12 @@ section NextStage
 
 -- Reading a cell past the end of a list, which replaces a numeric bound on
 -- encodeRow: the rotations need only that high bits are absent.
-#check @List.getD_eq_default
+-- Reading past the end of a list. getD_eq_default does not exist in this
+-- toolchain; these are the candidates for the same fact.
+#check @List.getElem?_eq_none
+#check @List.getD_eq_getElem?_getD
+example (l : List Bool) (i : Nat) (h : l.length <= i) : l.getD i false = false := by
+  rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none h]; rfl
 
 -- The rotations are shifts, a mask and an or; these are the exact rewrites
 -- the rotation lemmas will apply.

@@ -64,18 +64,30 @@ theorem rule110_eq (l c r : Bool) :
     rule110 l c r = ((c || r) && !(l && c && r)) := by
   cases l <;> cases c <;> cases r <;> rfl
 
+/-! ## The mask -/
+
+/-- `rowMask` is `2 ^ 256 - 1`, which is the form the bit lemmas are stated in. -/
+theorem rowMask_eq : rowMask = 2 ^ ruleWidth - 1 := by
+  show (1 <<< ruleWidth) - 1 = 2 ^ ruleWidth - 1
+  rw [Nat.shiftLeft_eq, Nat.one_mul]
+
+theorem testBit_rowMask (i : Nat) :
+    rowMask.testBit i = decide (i < ruleWidth) := by
+  rw [rowMask_eq, Nat.testBit_two_pow_sub_one]
+
 /-! ## `encodeRow` read one bit at a time
 
 This is the only fact about `encodeRow` the proof needs, and it is what makes
 the packed row and the list row the same object seen two ways. -/
 
-/-- Dropping the low bit of an encoded cons gives back the tail's encoding.
-`omega` handles division by the literal 2. -/
+/-- Dropping the low bit of an encoded cons gives back the tail's encoding. -/
 theorem half_cons (e : Nat) (b : Bool) :
     (2 * e + (if b then 1 else 0)) / 2 = e := by
-  cases b with
-  | false => omega
-  | true  => omega
+  cases b
+  · show (2 * e + 0) / 2 = e
+    omega
+  · show (2 * e + 1) / 2 = e
+    omega
 
 /-- Bit `i` of an encoded row is the row's `i`th cell. -/
 theorem testBit_encodeRow (row : List Bool) :
@@ -93,12 +105,22 @@ theorem testBit_encodeRow (row : List Bool) :
     | 0 =>
       show (2 * encodeRow rest + (if b then 1 else 0)).testBit 0 = b
       rw [Nat.testBit_zero]
-      cases b with
-      | false => simp; omega
-      | true  => simp; omega
+      cases b
+      · show decide ((2 * encodeRow rest + 0) % 2 = 1) = false
+        simp
+      · show decide ((2 * encodeRow rest + 1) % 2 = 1) = true
+        simp
     | j + 1 =>
       rw [Nat.testBit_succ, half_cons, ih j]
       rfl
+
+/-- Reading past the end of a list gives the default. `List.getD_eq_default`
+does not exist in this toolchain, so this is the same fact assembled from the
+two lemmas that do. -/
+theorem getD_past_end (row : List Bool) (i : Nat) (h : row.length ≤ i) :
+    row.getD i false = false := by
+  rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none h]
+  rfl
 
 /-- A row says nothing about bits at or above its length, so an encoded row's
 high bits are zero. This replaces a numeric bound on `encodeRow`: the packing
@@ -106,7 +128,72 @@ argument needs only that the rotations have nothing to wrap in from above. -/
 theorem testBit_encodeRow_high (row : List Bool) (i : Nat)
     (h : row.length ≤ i) : (encodeRow row).testBit i = false := by
   rw [testBit_encodeRow row i]
-  exact List.getD_eq_default row false h
+  exact getD_past_end row i h
+
+/-! ## The rotations
+
+Each is proved against a hypothesis that `R` has no bits at or above the row
+width, which `testBit_encodeRow_high` supplies for any encoded row. -/
+
+/-- Bit `i` of `rotL R` is bit `i - 1` of `R`, cyclically. -/
+theorem testBit_rotL (R : Nat) (hR : ∀ j, ruleWidth ≤ j → R.testBit j = false)
+    (i : Nat) (hi : i < ruleWidth) :
+    (rotL R).testBit i = R.testBit ((i + ruleWidth - 1) % ruleWidth) := by
+  show (((R <<< 1) ||| (R >>> (ruleWidth - 1))) &&& rowMask).testBit i
+      = R.testBit ((i + ruleWidth - 1) % ruleWidth)
+  rw [Nat.testBit_and, Nat.testBit_or, testBit_rowMask,
+      Nat.testBit_shiftLeft, Nat.testBit_shiftRight]
+  simp only [hi, decide_true, Bool.and_true]
+  match i with
+  | 0 =>
+    have hz : (0 + ruleWidth - 1) % ruleWidth = ruleWidth - 1 := by decide
+    rw [hz]
+    show (decide (1 ≤ 0) && R.testBit (0 - 1)) || R.testBit (ruleWidth - 1 + 0)
+        = R.testBit (ruleWidth - 1)
+    simp
+  | k + 1 =>
+    have hhigh : R.testBit (ruleWidth - 1 + (k + 1)) = false := by
+      refine hR _ ?_
+      omega
+    have hmod : (k + 1 + ruleWidth - 1) % ruleWidth = k := by
+      have : k < ruleWidth := by omega
+      omega
+    rw [hmod, hhigh]
+    show (decide (1 ≤ k + 1) && R.testBit (k + 1 - 1)) || false = R.testBit k
+    simp
+
+/-- Bit `i` of `rotR R` is bit `i + 1` of `R`, cyclically. -/
+theorem testBit_rotR (R : Nat) (hR : ∀ j, ruleWidth ≤ j → R.testBit j = false)
+    (i : Nat) (hi : i < ruleWidth) :
+    (rotR R).testBit i = R.testBit ((i + 1) % ruleWidth) := by
+  show (((R >>> 1) ||| ((R &&& 1) <<< (ruleWidth - 1))) &&& rowMask).testBit i
+      = R.testBit ((i + 1) % ruleWidth)
+  rw [Nat.testBit_and, Nat.testBit_or, testBit_rowMask,
+      Nat.testBit_shiftLeft, Nat.testBit_shiftRight, Nat.testBit_and]
+  simp only [hi, decide_true, Bool.and_true]
+  by_cases hlast : i = ruleWidth - 1
+  · subst hlast
+    have hover : R.testBit (1 + (ruleWidth - 1)) = false := by
+      refine hR _ ?_
+      omega
+    have hmod : (ruleWidth - 1 + 1) % ruleWidth = 0 := by decide
+    rw [hmod, hover]
+    show false || (decide (ruleWidth - 1 ≤ ruleWidth - 1)
+        && (R.testBit (ruleWidth - 1 - (ruleWidth - 1))
+            && (1 : Nat).testBit (ruleWidth - 1 - (ruleWidth - 1))))
+        = R.testBit 0
+    simp
+  · have hlt : i < ruleWidth - 1 := by omega
+    have hmod : (i + 1) % ruleWidth = i + 1 := by
+      refine Nat.mod_eq_of_lt ?_
+      omega
+    have hshift : (decide (ruleWidth - 1 ≤ i)) = false := by
+      simp
+      omega
+    rw [hmod, hshift]
+    show R.testBit (1 + i) || false = R.testBit (i + 1)
+    rw [Nat.add_comm 1 i]
+    simp
 
 /-! ## The step, cell by cell -/
 
@@ -121,6 +208,6 @@ theorem getD_stepRow (row : List Bool) (i : Nat) (h : i < row.length) :
       = rule110 (row.getD ((i + row.length - 1) % row.length) false)
                 (row.getD i false)
                 (row.getD ((i + 1) % row.length) false) := by
-  simp [stepRow, List.getD_eq_getElem?_getD, List.getElem?_map, h]
+  simp [stepRow, List.getD_eq_getElem?_getD, h]
 
 end Submission
