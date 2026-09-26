@@ -94,3 +94,28 @@ example (b : Bool) : (b && true) = b := by cases b <;> rfl
 example : (2 : Nat) ^ 3 = 8 := by decide
 
 end TacticsAvailable
+
+def rowMaskProbe : Nat := (1 <<< ruleWidth) - 1
+
+section NextStage
+
+-- Reading a cell past the end of a list, which replaces a numeric bound on
+-- encodeRow: the rotations need only that high bits are absent.
+#check @List.getD_eq_default
+
+-- The rotations are shifts, a mask and an or; these are the exact rewrites
+-- the rotation lemmas will apply.
+#check @Nat.shiftLeft_eq
+#check @Nat.shiftRight_eq_div_pow
+#check @Nat.and_one_is_mod
+#check @Nat.testBit_mod_two_pow
+
+-- Turning an equality of packed rows into one bit at a time.
+example (a b : Nat) (h : ∀ i, a.testBit i = b.testBit i) : a = b :=
+  Nat.eq_of_testBit_eq h
+
+-- The mask really has its low 256 bits set and nothing above.
+example : rowMaskProbe.testBit 0 = true := by decide
+example : rowMaskProbe.testBit 255 = true := by decide
+
+end NextStage

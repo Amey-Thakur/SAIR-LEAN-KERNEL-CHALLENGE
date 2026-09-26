@@ -65,6 +65,10 @@ jobs:
         continue-on-error: true
         working-directory: upstream/problems/ca-rule110
         run: |
+          # Spec has to be compiled before anything can import it; the first
+          # run of this workflow probed against a package with no olean and
+          # every name failed for that one reason.
+          lake build Spec
           cp ../../../stage2/ca-rule110/Probe.lean .
           lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
           echo "--- names that did not resolve ---"

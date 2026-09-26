@@ -59,52 +59,54 @@ def impl (n : Nat) : Nat :=
 /-! ## The Rule 110 table as a formula -/
 
 /-- The specification's three-case table is this boolean expression. Eight
-patterns, so `decide` settles it. -/
+patterns, so the case split settles it. -/
 theorem rule110_eq (l c r : Bool) :
     rule110 l c r = ((c || r) && !(l && c && r)) := by
   cases l <;> cases c <;> cases r <;> rfl
 
-/-! ## `encodeRow` read one bit at a time -/
+/-! ## `encodeRow` read one bit at a time
 
-/-- Bit `i` of an encoded row is the row's `i`th cell. This is the only fact
-about `encodeRow` the proof needs, and it is what makes the packed row and the
-list row the same object seen two ways. -/
+This is the only fact about `encodeRow` the proof needs, and it is what makes
+the packed row and the list row the same object seen two ways. -/
+
+/-- Dropping the low bit of an encoded cons gives back the tail's encoding.
+`omega` handles division by the literal 2. -/
+theorem half_cons (e : Nat) (b : Bool) :
+    (2 * e + (if b then 1 else 0)) / 2 = e := by
+  cases b with
+  | false => omega
+  | true  => omega
+
+/-- Bit `i` of an encoded row is the row's `i`th cell. -/
 theorem testBit_encodeRow (row : List Bool) :
     ∀ i, (encodeRow row).testBit i = row.getD i false := by
   induction row with
   | nil =>
     intro i
     show (0 : Nat).testBit i = false
-    simp [Nat.testBit]
+    simp
   | cons b rest ih =>
     intro i
     show (2 * encodeRow rest + (if b then 1 else 0)).testBit i
         = (b :: rest).getD i false
     match i with
     | 0 =>
+      show (2 * encodeRow rest + (if b then 1 else 0)).testBit 0 = b
+      rw [Nat.testBit_zero]
       cases b with
-      | false => simp [Nat.testBit_zero, List.getD]
-      | true  => simp [Nat.testBit_zero, List.getD]
+      | false => simp; omega
+      | true  => simp; omega
     | j + 1 =>
-      have h : (2 * encodeRow rest + (if b then 1 else 0)).testBit (j + 1)
-             = (encodeRow rest).testBit j := by
-        cases b <;> simp [Nat.testBit_succ, Nat.mul_comm]
-      rw [h, ih j]
+      rw [Nat.testBit_succ, half_cons, ih j]
       rfl
 
-/-- An encoded row fits in as many bits as it has cells. -/
-theorem encodeRow_lt (row : List Bool) :
-    encodeRow row < 2 ^ row.length := by
-  induction row with
-  | nil => exact Nat.one_pos
-  | cons b rest ih =>
-    show 2 * encodeRow rest + (if b then 1 else 0) < 2 ^ (rest.length + 1)
-    have h2 : 2 ^ (rest.length + 1) = 2 * 2 ^ rest.length := by
-      rw [Nat.pow_succ, Nat.mul_comm]
-    have hb : (if b then 1 else 0) < 2 := by cases b <;> decide
-    omega_nat
-    -- `omega` is not available on a bare core toolchain for this shape, so the
-    -- bound is finished by hand below if the tactic above does not discharge it.
+/-- A row says nothing about bits at or above its length, so an encoded row's
+high bits are zero. This replaces a numeric bound on `encodeRow`: the packing
+argument needs only that the rotations have nothing to wrap in from above. -/
+theorem testBit_encodeRow_high (row : List Bool) (i : Nat)
+    (h : row.length ≤ i) : (encodeRow row).testBit i = false := by
+  rw [testBit_encodeRow row i]
+  exact List.getD_eq_default row false h
 
 /-! ## The step, cell by cell -/
 
@@ -119,9 +121,6 @@ theorem getD_stepRow (row : List Bool) (i : Nat) (h : i < row.length) :
       = rule110 (row.getD ((i + row.length - 1) % row.length) false)
                 (row.getD i false)
                 (row.getD ((i + 1) % row.length) false) := by
-  have hlen : i < (List.range row.length).length := by
-    simpa using h
-  simp [stepRow, List.getD_eq_getElem?_getD, List.getElem?_map,
-        List.getElem?_range, h]
+  simp [stepRow, List.getD_eq_getElem?_getD, List.getElem?_map, h]
 
 end Submission
