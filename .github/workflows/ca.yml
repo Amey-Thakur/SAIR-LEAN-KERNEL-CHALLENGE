@@ -94,7 +94,15 @@ jobs:
         working-directory: upstream/problems/ca-rule110
         run: |
           printf 'import Submission\n#print axioms Submission.impl_correct\n' > Axioms.lean
-          lake env lean Axioms.lean | tee ../../../axioms.txt
+          lake env lean Axioms.lean 2>&1 | tee ../../../axioms.txt
+          # An earlier round passed this step while impl_correct did not exist
+          # at all: the grep found no forbidden axiom because it found nothing.
+          if grep -qiE "unknown|error" ../../../axioms.txt; then
+            echo "impl_correct missing or errored"; cat ../../../axioms.txt; exit 1
+          fi
+          if ! grep -q "axioms" ../../../axioms.txt; then
+            echo "no axiom line reported"; exit 1
+          fi
           if grep -qiE "sorryAx|native" ../../../axioms.txt; then
             echo "FORBIDDEN AXIOM"; exit 1
           fi
@@ -111,6 +119,10 @@ jobs:
           cases = json.loads(pathlib.Path(
               "../../../stage2/ca-rule110/cases.json").read_text())["cases"]
           print("import Submission")
+          # encodeRow over a 256-cell list is deeper than the elaborator's
+          # default recursion limit. This is a limit on checking the answer,
+          # not on computing it: the build itself is unaffected.
+          print("set_option maxRecDepth 100000")
           print("namespace CheckCases")
           for i, c in enumerate(cases):
               print(f"theorem c{i} : Submission.impl {c['n']} = {c['value']} := by rfl")

@@ -219,4 +219,76 @@ theorem getD_stepRow (row : List Bool) (i : Nat) (h : i < row.length) :
                 (row.getD ((i + 1) % row.length) false) := by
   simp [stepRow, List.getD_eq_getElem?_getD, h]
 
+
+
+/-! ## The correspondence
+
+One packed step is one list step. Everything above exists to make this one
+theorem provable; everything below follows from it by induction.
+-/
+
+/-- The high bits of an encoded row of the fixed width are absent, in the form
+the rotation lemmas ask for. -/
+theorem encodeRow_high (row : List Bool) (hlen : row.length = ruleWidth) :
+    ∀ j, ruleWidth ≤ j → (encodeRow row).testBit j = false := by
+  intro j hj
+  refine testBit_encodeRow_high row j ?_
+  rw [hlen]
+  exact hj
+
+/-- A packed step and a list step are the same row seen two ways. -/
+theorem pStep_encodeRow (row : List Bool) (hlen : row.length = ruleWidth) :
+    pStep (encodeRow row) = encodeRow (stepRow row) := by
+  have hhigh := encodeRow_high row hlen
+  refine Nat.eq_of_testBit_eq ?_
+  intro i
+  rw [pStep, Nat.testBit_and, Nat.testBit_or, Nat.testBit_xor,
+      Nat.testBit_and, Nat.testBit_and]
+  by_cases hi : i < ruleWidth
+  · rw [testBit_rowMask_lt i hi, testBit_rotL _ hhigh i hi,
+        testBit_rotR _ hhigh i hi, testBit_encodeRow row i,
+        testBit_encodeRow row _, testBit_encodeRow row _,
+        testBit_encodeRow (stepRow row) i]
+    rw [getD_stepRow row i (by rw [hlen]; exact hi), rule110_eq, hlen]
+    cases row.getD ((i + ruleWidth - 1) % ruleWidth) false <;>
+      cases row.getD i false <;>
+      cases row.getD ((i + 1) % ruleWidth) false <;> rfl
+  · have hge : ruleWidth ≤ i := by omega
+    have hL : (rotL (encodeRow row)).testBit i = false := by
+      rw [rotL, Nat.testBit_and, testBit_rowMask]
+      simp [hi]
+    have hR : (rotR (encodeRow row)).testBit i = false := by
+      rw [rotR, Nat.testBit_and, testBit_rowMask]
+      simp [hi]
+    rw [testBit_rowMask, hL, hR, hhigh i hge,
+        testBit_encodeRow_high (stepRow row) i
+          (by rw [length_stepRow, hlen]; exact hge)]
+    simp [hi]
+
+/-- Iterating the packed step is iterating the list step. -/
+theorem pIter_encodeRow (t : Nat) :
+    ∀ row : List Bool, row.length = ruleWidth →
+      pIter t (encodeRow row) = encodeRow (iterRow t row) := by
+  induction t with
+  | zero =>
+    intro row _
+    rfl
+  | succ k ih =>
+    intro row hlen
+    show pIter k (pStep (encodeRow row)) = encodeRow (iterRow k (stepRow row))
+    rw [pStep_encodeRow row hlen]
+    refine ih (stepRow row) ?_
+    rw [length_stepRow, hlen]
+
+/-- The initial row has the fixed width, because it is a map over a range. -/
+theorem length_initRowFor (seed : Nat) :
+    (initRowFor seed).length = ruleWidth := by
+  simp [initRowFor]
+
+theorem impl_correct : ∀ n, impl n = caSpecN n := by
+  intro n
+  show pIter (caSteps n) (encodeRow (initRowFor (caSeed n)))
+      = encodeRow (iterRow (caSteps n) (initRowFor (caSeed n)))
+  exact pIter_encodeRow _ _ (length_initRowFor _)
+
 end Submission
