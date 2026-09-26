@@ -133,67 +133,76 @@ theorem testBit_encodeRow_high (row : List Bool) (i : Nat)
 /-! ## The rotations
 
 Each is proved against a hypothesis that `R` has no bits at or above the row
-width, which `testBit_encodeRow_high` supplies for any encoded row. -/
+width, which `testBit_encodeRow_high` supplies for any encoded row.
+
+Two things learned from earlier rounds shape these proofs. `omega` treats
+`ruleWidth` as an opaque atom because it is a definition, so every arithmetic
+fact here is stated on the literal 256. And a `show` that guesses the goal
+after a rewrite is a guess with no toolchain to check it, so the goals are
+closed with `simp` and named hypotheses instead.
+-/
+
+/-- Every bit below the width is set in the mask. -/
+theorem testBit_rowMask_lt (k : Nat) (hk : k < ruleWidth) :
+    rowMask.testBit k = true := by
+  rw [testBit_rowMask]
+  simp [hk]
 
 /-- Bit `i` of `rotL R` is bit `i - 1` of `R`, cyclically. -/
 theorem testBit_rotL (R : Nat) (hR : ∀ j, ruleWidth ≤ j → R.testBit j = false)
     (i : Nat) (hi : i < ruleWidth) :
     (rotL R).testBit i = R.testBit ((i + ruleWidth - 1) % ruleWidth) := by
-  show (((R <<< 1) ||| (R >>> (ruleWidth - 1))) &&& rowMask).testBit i
-      = R.testBit ((i + ruleWidth - 1) % ruleWidth)
-  rw [Nat.testBit_and, Nat.testBit_or, testBit_rowMask,
-      Nat.testBit_shiftLeft, Nat.testBit_shiftRight]
-  simp only [hi, decide_true, Bool.and_true]
-  match i with
-  | 0 =>
-    have hz : (0 + ruleWidth - 1) % ruleWidth = ruleWidth - 1 := by decide
-    rw [hz]
-    show (decide (1 ≤ 0) && R.testBit (0 - 1)) || R.testBit (ruleWidth - 1 + 0)
-        = R.testBit (ruleWidth - 1)
+  have hw : ruleWidth = 256 := rfl
+  rw [rotL, Nat.testBit_and, Nat.testBit_or, testBit_rowMask_lt i hi,
+      Bool.and_true, Nat.testBit_shiftLeft, Nat.testBit_shiftRight]
+  cases i with
+  | zero =>
+    have hm : (0 + ruleWidth - 1) % ruleWidth = ruleWidth - 1 := by
+      rw [hw]
+    rw [hm]
     simp
-  | k + 1 =>
-    have hhigh : R.testBit (ruleWidth - 1 + (k + 1)) = false := by
+  | succ k =>
+    have hkw : k + 1 < 256 := by rw [hw] at hi; omega
+    have hm : (k + 1 + ruleWidth - 1) % ruleWidth = k := by
+      rw [hw]
+      omega
+    have hover : R.testBit (ruleWidth - 1 + (k + 1)) = false := by
       refine hR _ ?_
+      rw [hw]
       omega
-    have hmod : (k + 1 + ruleWidth - 1) % ruleWidth = k := by
-      have : k < ruleWidth := by omega
-      omega
-    rw [hmod, hhigh]
-    show (decide (1 ≤ k + 1) && R.testBit (k + 1 - 1)) || false = R.testBit k
+    rw [hm, hover]
     simp
 
 /-- Bit `i` of `rotR R` is bit `i + 1` of `R`, cyclically. -/
 theorem testBit_rotR (R : Nat) (hR : ∀ j, ruleWidth ≤ j → R.testBit j = false)
     (i : Nat) (hi : i < ruleWidth) :
     (rotR R).testBit i = R.testBit ((i + 1) % ruleWidth) := by
-  show (((R >>> 1) ||| ((R &&& 1) <<< (ruleWidth - 1))) &&& rowMask).testBit i
-      = R.testBit ((i + 1) % ruleWidth)
-  rw [Nat.testBit_and, Nat.testBit_or, testBit_rowMask,
-      Nat.testBit_shiftLeft, Nat.testBit_shiftRight, Nat.testBit_and]
-  simp only [hi, decide_true, Bool.and_true]
+  have hw : ruleWidth = 256 := rfl
+  rw [rotR, Nat.testBit_and, Nat.testBit_or, testBit_rowMask_lt i hi,
+      Bool.and_true, Nat.testBit_shiftRight, Nat.testBit_shiftLeft,
+      Nat.testBit_and]
   by_cases hlast : i = ruleWidth - 1
-  · subst hlast
-    have hover : R.testBit (1 + (ruleWidth - 1)) = false := by
+  · have hm : (i + 1) % ruleWidth = 0 := by
+      rw [hw] at hlast ⊢
+      omega
+    have hover : R.testBit (1 + i) = false := by
       refine hR _ ?_
+      rw [hw] at hlast ⊢
       omega
-    have hmod : (ruleWidth - 1 + 1) % ruleWidth = 0 := by decide
-    rw [hmod, hover]
-    show false || (decide (ruleWidth - 1 ≤ ruleWidth - 1)
-        && (R.testBit (ruleWidth - 1 - (ruleWidth - 1))
-            && (1 : Nat).testBit (ruleWidth - 1 - (ruleWidth - 1))))
-        = R.testBit 0
+    rw [hm, hover, hlast]
     simp
-  · have hlt : i < ruleWidth - 1 := by omega
-    have hmod : (i + 1) % ruleWidth = i + 1 := by
-      refine Nat.mod_eq_of_lt ?_
+  · have hlt : i < ruleWidth - 1 := by
+      rw [hw] at hi hlast ⊢
       omega
-    have hshift : (decide (ruleWidth - 1 ≤ i)) = false := by
+    have hm : (i + 1) % ruleWidth = i + 1 := by
+      rw [hw] at hi ⊢
+      omega
+    have hsh : (ruleWidth - 1 ≤ i) = False := by
+      rw [hw] at hlt ⊢
       simp
       omega
-    rw [hmod, hshift]
-    show R.testBit (1 + i) || false = R.testBit (i + 1)
-    rw [Nat.add_comm 1 i]
-    simp
+    rw [hm]
+    simp [hsh, Nat.add_comm 1 i]
 
 /-! ## The step, cell by cell -/
 
