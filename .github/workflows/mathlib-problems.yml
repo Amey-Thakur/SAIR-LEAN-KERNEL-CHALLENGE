@@ -83,6 +83,20 @@ jobs:
             --cases ../../../stage2/${{ matrix.problem }}/cases.json \
             --label starter --out ../../../starter-times.json
 
+      # Every lemma name in a proof written without a toolchain is a guess.
+      # Compiling the guesses on their own reports a wrong name by itself
+      # rather than buried under the real proof's errors.
+      - name: Probe which lemmas exist, if there is a probe
+        continue-on-error: true
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          probe=../../../stage2/${{ matrix.problem }}/Probe.lean
+          if [ ! -f "$probe" ]; then echo "no probe"; exit 0; fi
+          cp "$probe" .
+          lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          echo "--- names that did not resolve ---"
+          grep -E "[Uu]nknown (constant|identifier)" ../../../probe.log || echo "(none)"
+
       # A candidate is optional: until one is written the run is a measurement
       # of the shipped code, which is the point.
       - name: Build and time the candidate, if there is one
@@ -139,4 +153,5 @@ jobs:
             starter-times.json
             candidate-times.json
             axioms.txt
+            probe.log
           if-no-files-found: warn
