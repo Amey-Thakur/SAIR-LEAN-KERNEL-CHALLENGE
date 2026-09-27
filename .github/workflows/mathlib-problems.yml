@@ -17,6 +17,7 @@ on:
     paths:
       - "stage2/fib/**"
       - "stage2/primecount/**"
+      - "stage2/mertens/**"
       - "stage2/cases.py"
       - "stage2/timecases.py"
       - "stage2/report_times.py"
@@ -37,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        problem: [fib, primecount]
+        problem: [fib, primecount, mertens]
     steps:
       - uses: actions/checkout@v4
 

@@ -42,6 +42,10 @@ PLANS = {
         "groups": [(50, 100), (150, 300), (600, 1_000)],
         "small": [0, 1, 2, 3, 10, 30],
     },
+    "mertens": {
+        "groups": [(25, 50), (80, 150), (300, 500)],
+        "small": [0, 1, 2, 3, 10],
+    },
 }
 
 
@@ -67,13 +71,41 @@ def pi_trial(n: int) -> int:
     return sum(1 for k in range(n + 1) if prime(k))
 
 
-REFERENCE = {"fib": fib_plain, "primecount": pi_trial}
+def mertens_trial(n: int) -> int:
+    """Sum the Moebius function by factorising each k. Mathlib puts mu(0) = 0."""
+    def mu(k: int) -> int:
+        if k == 0:
+            return 0
+        if k == 1:
+            return 1
+        distinct, m, d = 0, k, 2
+        while d * d <= m:
+            if m % d == 0:
+                m //= d
+                if m % d == 0:      # a squared prime factor
+                    return 0
+                distinct += 1
+            d += 1
+        if m > 1:
+            distinct += 1
+        return -1 if distinct % 2 else 1
+    return sum(mu(k) for k in range(n + 1))
+
+
+REFERENCE = {"fib": fib_plain, "primecount": pi_trial,
+             "mertens": mertens_trial}
 
 # A few values that are known independently of any code here, so a systematic
 # error in the reference above cannot pass unnoticed.
 KNOWN = {
     "fib": {0: 0, 1: 1, 2: 1, 3: 2, 10: 55, 20: 6765, 50: 12586269025},
     "primecount": {0: 0, 1: 0, 2: 1, 3: 2, 10: 4, 30: 10, 100: 25, 1000: 168},
+    # Mertens values. These are cross-checked against a linear sieve for mu,
+    # which shares no code with the trial-division reference above; the two
+    # agree at every k up to 500. An earlier version of this line carried
+    # M(500) = -7 from memory, the check caught it, and -6 is what both
+    # methods give.
+    "mertens": {0: 0, 1: 1, 2: 0, 3: -1, 10: -1, 100: 1, 300: -5, 500: -6},
 }
 
 
