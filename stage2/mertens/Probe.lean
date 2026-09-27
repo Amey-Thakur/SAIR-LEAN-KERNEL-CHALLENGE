@@ -46,13 +46,10 @@ section RouteA
 -- Is squarefreeness decidable without going through minFac?
 #check @Nat.squarefree_iff_prime_squarefree
 #check @Nat.squarefree_iff_nodup_primeFactorsList
-#check @Nat.minSqFacProp
 #check @Nat.minSqFac
 
 -- The factor count the sign comes from.
 #check @Nat.primeFactorsList
-#check @Nat.factors_count_eq
-#check @Nat.primeFactorsList_length
 
 end RouteA
 
@@ -97,3 +94,40 @@ section Diagnosis
 example : (ArithmeticFunction.moebius 6 : Int) = 1 := by decide
 
 end Diagnosis
+
+section RouteBDetail
+
+/- The probe's diagnosis example FAILED, which is the confirmation it was
+placed for: `decide` cannot settle `ArithmeticFunction.moebius 6 = 1`, so the
+blocker really is at moebius itself and not somewhere in the summation.
+
+Route B is therefore the plan: replace `Nat.minFac` with a structural equal,
+then `Nat.primeFactorsList` follows, and Mathlib's squarefree and factor-count
+API comes with it for free. These are the names that route needs. -/
+
+-- The definitional shape of minFac, which a structural replacement must match.
+#check @Nat.minFacAux
+#check @Nat.minFac_eq
+#check @Nat.minFacAux_has_prop
+#check @Nat.minFac_sq_le_self
+#check @Nat.minFac_pos
+
+-- primeFactorsList is defined by well-founded recursion on n / minFac n;
+-- these are the equation lemmas a mirroring induction needs.
+#check @Nat.primeFactorsList
+#check @Nat.primeFactorsList_zero
+#check @Nat.primeFactorsList_one
+#check @Nat.primeFactorsList_succ_succ
+#check @Nat.prod_primeFactorsList
+#check @Nat.mem_primeFactorsList
+
+-- Strong induction, since the recursion decreases by division not subtraction.
+#check @Nat.strong_induction_on
+#check @Nat.strongRecOn
+#check @Nat.div_lt_self
+
+-- And what moebius becomes once a factorisation is available.
+#check @ArithmeticFunction.cardFactors_apply
+#check @Nat.squarefree_iff_nodup_primeFactorsList
+
+end RouteBDetail
