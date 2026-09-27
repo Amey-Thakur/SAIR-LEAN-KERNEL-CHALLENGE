@@ -1,21 +1,31 @@
-# Submission note — `partition`, list rows
+# Submission note — `partition`, rows of small numbers
 
 ```
-Approach: rows of small numbers, no packing.
+Approach: dynamic programming over rows of small numbers, with no packing.
 
-This replaces a packed-row entry that the leaderboard measured at 132,036,341 units of work against a leader at 1,429,499. That entry held a whole table row in one natural number, which minimises the COUNT of Nat operations and was chosen on that basis. The ranking metric is kernel work, not operation count, and the two disagree here: packing made every operation act on a 2,701-bit number, roughly 43 machine words, and the per-row reduction became a division by a 2,701-bit constant, which is superlinear. A cost model charging by operand size puts 78% of that entry's cost in the reduction alone.
+Row k of the table is a List Nat whose m-th entry is partAux k m. Row k+1 is built from row k, and the previous row is named once so that it is built once rather than once per reference. Each cell is the specification's own sum with the recursive call replaced by a lookup into the previous row, so correctness is a congruence rather than a re-derivation: two functions that agree at every index the sum reads give the same sum, and the sum only ever reads indices m - j*d, which never exceed m. Nothing in the row is ever wider than a single partition count.
 
-This entry keeps every value a small number. Row k is a List Nat whose m-th entry is partAux k m, row k+1 is built from row k, and the previous row is named once so it is built once. Each cell is the specification's own sum with the recursive call replaced by a lookup, so correctness is a congruence rather than a re-derivation: two functions that agree everywhere the sum looks give the same sum, and the sum only ever reads indices m - j*d, which never exceed m.
+What it pays for is indexing. Reading position m of a list walks m cons cells, so the row-building cost is quadratic in the row length where a packed representation would be linear. That is a deliberate trade, and the reason for making it is that the two costs are charged very differently.
 
-What it pays for is indexing: reading position m of a list walks m cons cells. That is the cost the packed design was built to avoid, and the measurement says it was the cheaper cost of the two.
+This entry replaces a packed-row entry, measured on this problem at 132,036,341 units of computation, which held a whole table row in one natural number so that a whole row advanced in a constant number of Nat operations. Packing minimises the COUNT of operations and was chosen on that basis. It does not minimise their SIZE: every operation in that design acts on a 2,701-bit number at the largest judged input, roughly 43 machine words, and the per-row reduction is a division by a 2,701-bit constant. Counting operations without regard to operand size hides that completely.
 
-impl_correct is proved for every n. #print axioms reports only the permitted axioms, and the file uses core Lean with no Mathlib dependency.
+Measuring rather than modelling settled which of the two matters, and the two available instruments disagree, each about its own quantity. Timed on one machine in one job at the six judged sizes, the packed row takes 0.07 s and this entry takes 3.63 s, so packing wins by a factor of 52 in elapsed time. Elapsed time is insensitive to operand width here: holding the number of kernel reduction steps fixed at 20,000 and varying only the width of the operands, a 20,301-bit operand costs 1.1 times what a 1-bit operand costs, because the kernel's arithmetic on a 43-word number is about as fast as on a 1-word number. So elapsed time cannot see operand size at all, and a design chosen on elapsed time is chosen on operation count alone.
 
-No precomputed answers: no lookup table, no hardcoded count, no input-dependent branch carrying an answer. Every value comes from the specification's recurrence at reduction time, and the results were checked against the recurrence recomputed independently in Python at every n from 0 to 13 and at the six judged sizes.
+A cost model that charges by operand size instead puts this entry below the packed one, and predicts the packed entry's measured figure to within 14% when calibrated against the published leading figures. That is a prediction about this problem's metric rather than about elapsed time, and this entry is submitted to test it: if operand size is charged, a design whose every value is a single partition count should cost less than one whose every value is 43 words wide, despite being 52 times slower to run.
+
+impl_correct is proved for every n, not only at the judged sizes. #print axioms reports only permitted axioms. The file uses core Lean with no Mathlib dependency.
+
+No precomputed answers: no lookup table, no hardcoded count, and no input-dependent branch carrying an answer. Every value is produced by the specification's recurrence at reduction time. The results were checked against the recurrence recomputed independently in Python at every n from 0 to 13 and at each of the six judged sizes.
 
 Acknowledgements and references. No Contributor Network item and no external source was used.
 ```
 
-Submitted to calibrate what a list step costs in kernel work, which the
-authoring machine cannot measure: it reports wall time on a virtualised runner
-and the judge counts hardware instructions.
+## Why this was submitted twice
+
+Submission 713 was this same design, submitted on the operand-size model before
+either instrument had been checked, and superseded by 716 within the minute when
+elapsed time appeared to refute the model. Elapsed time was the wrong instrument:
+`stage2/widthcost.py` later measured that it cannot see operand width at all.
+`stage2/partition/MODELS.md` records all three cost models, both instruments, and
+the calibration. This resubmission is the test the first one should have waited
+for.
