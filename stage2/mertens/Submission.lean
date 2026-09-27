@@ -146,7 +146,10 @@ theorem factorsFast_eq :
       match n, h2 with
       | (k + 2), _ =>
         rw [Nat.primeFactorsList]
-        exact congrArg _ (ih _ (by rw [minFacFast_eq] at hdiv ⊢; exact hdiv))
+        -- `hdiv` is already stated with `Nat.minFac`, and the goal here is
+        -- literally it; rewriting again looks for a `minFacFast` that the
+        -- earlier rewrite has already removed.
+        exact congrArg _ (ih _ hdiv)
 
 /-! ## Step 3: moebius, and the sum
 
