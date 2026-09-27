@@ -93,6 +93,17 @@ jobs:
             --timeout 120 \
             --out ../../../survey.json
 
+      - name: Probe which lemmas exist, if there is a probe
+        continue-on-error: true
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          pr=../../../stage2/${{ matrix.problem }}/Probe.lean
+          if [ ! -f "$pr" ]; then echo 'no probe'; exit 0; fi
+          cp "$pr" .
+          lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          echo '--- unresolved ---'
+          grep -E '[Uu]nknown (constant|identifier)|error' ../../../probe.log || echo '(clean)'
+
       # A candidate is optional: until one exists the run measures the shipped
       # code, which is the point. When one does exist it must build, rest on
       # permitted axioms, and reduce the same judged sizes, so the comparison
@@ -157,4 +168,5 @@ jobs:
             candidate-survey.json
             candidate-build.log
             axioms.txt
+            probe.log
           if-no-files-found: warn
