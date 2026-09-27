@@ -58,7 +58,9 @@ theorem noFactorUpto_iff (p : Nat) (k : Nat) :
     noFactorUpto p k = true ↔ ∀ m, 2 ≤ m → m ≤ k → ¬ (m ∣ p) := by
   induction k with
   | zero =>
-    simp only [noFactorUpto]
+    -- `noFactorUpto p 0` is `true` by definition, so the goal is already an
+    -- equation; simping it first turns it into `True` and `rfl` then has no
+    -- relation to work on.
     constructor
     · intro _ m hm hle
       omega
@@ -71,9 +73,13 @@ theorem noFactorUpto_iff (p : Nat) (k : Nat) :
       rcases Nat.lt_or_ge m (k + 1) with h | h
       · exact hrest m hm (by omega)
       · have hmk : m = k + 1 := by omega
-        subst hmk
         intro hdvd
-        have hmod : p % m = 0 := (Nat.dvd_iff_mod_eq_zero m p (by omega)).mp hdvd
+        -- `Nat.dvd_iff_mod_eq_zero` has both arguments implicit and needs no
+        -- positivity side condition; substituting m away here would remove
+        -- the very name the divisibility hypothesis is stated in.
+        have hmod : p % (k + 1) = 0 := by
+          rw [← hmk]
+          exact Nat.dvd_iff_mod_eq_zero.mp hdvd
         simp only [Bool.or_eq_true, decide_eq_true_eq, bne_iff_ne, ne_eq] at hguard
         rcases hguard with hlt | hne
         · omega
@@ -85,8 +91,7 @@ theorem noFactorUpto_iff (p : Nat) (k : Nat) :
       · exact Or.inl hsmall
       · refine Or.inr ?_
         intro hmod
-        exact h (k + 1) hbig (by omega)
-          ((Nat.dvd_iff_mod_eq_zero (k + 1) p (by omega)).mpr hmod)
+        exact h (k + 1) hbig (by omega) (Nat.dvd_iff_mod_eq_zero.mpr hmod)
 
 theorem isPrimeFast_eq (p : Nat) : isPrimeFast p = decide (Nat.Prime p) := by
   apply Bool.eq_iff_iff.mpr
