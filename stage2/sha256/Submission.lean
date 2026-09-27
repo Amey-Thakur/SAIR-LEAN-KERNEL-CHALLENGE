@@ -116,32 +116,52 @@ def roundsW : List Nat → Window → Digest → Digest
   | [],      _, s => s
   | k :: ks, w, s => roundsW ks (w.push w.nextWord) (round s k w.x0)
 
+/-- The schedule as the window itself produces it: the current word, then the
+same again from the pushed window. Naming this separately is what removes the
+side condition from `roundsW_eq`; stating that lemma against
+`w.toList ++ generate m w` needs `m >= 1` to peel a generated word, and `m = 0`
+is reachable whenever the constant list is short. -/
+def sched : Nat → Window → List Nat
+  | 0,     _ => []
+  | m + 1, w => w.x0 :: sched m (w.push w.nextWord)
+
+/-- The rounds walk exactly that schedule, for any constant list and any
+window, with no hypothesis at all. -/
 theorem roundsW_eq :
-    ∀ (ks : List Nat) (w : Window) (s : Digest) (m : Nat),
-      ks.length ≤ 16 + m →
-      roundsW ks w s = rounds (ks.zip (w.toList ++ generate m w)) s := by
+    ∀ (ks : List Nat) (w : Window) (s : Digest),
+      roundsW ks w s = rounds (ks.zip (sched ks.length w)) s := by
   intro ks
   induction ks with
   | nil =>
-    intro w s m _
+    intro w s
     rfl
   | cons k ks ih =>
-    intro w s m hm
-    match m, hm with
-    | (m + 1), hm =>
-      rw [roundsW]
-      show roundsW ks (w.push w.nextWord) (round s k w.x0)
-          = rounds ((k :: ks).zip (w.toList ++ generate (m + 1) w)) s
-      rw [ih (w.push w.nextWord) (round s k w.x0) m (by simp at hm ⊢; omega)]
-      -- the head of the schedule is w.x0, and its tail is the pushed window's
-      -- own schedule, which is the whole content of the step
-      simp [Window.toList, Window.push, generate, rounds, List.zip]
+    intro w s
+    show roundsW ks (w.push w.nextWord) (round s k w.x0)
+        = rounds ((k :: ks).zip (sched (ks.length + 1) w)) s
+    rw [sched, List.zip_cons_cons, rounds, ih]
+
+/-- Sixteen steps of the walk are the window itself, and each one after that is
+a generated word. -/
+theorem sched_eq : ∀ (m : Nat) (w : Window),
+    sched (16 + m) w = w.toList ++ generate m w := by
+  intro m
+  induction m with
+  | zero =>
+    intro w
+    rfl
+  | succ k ih =>
+    intro w
+    show sched (16 + k + 1) w = w.toList ++ generate (k + 1) w
+    rw [sched, ih (w.push w.nextWord)]
+    simp [Window.toList, Window.push, generate]
 
 /-- The constant list has exactly the 64 entries the schedule supplies. -/
 theorem roundsW_K (d : Digest) :
     roundsW K (initialWindow d) iv = rounds (K.zip (fastSchedule d)) iv := by
-  rw [fastSchedule]
-  exact roundsW_eq K (initialWindow d) iv 48 (by decide)
+  rw [roundsW_eq, fastSchedule]
+  have hlen : K.length = 16 + 48 := by decide
+  rw [hlen, sched_eq]
 
 /-- The same step, with no list built per block. -/
 def fastStep2 (d : Digest) : Digest :=
