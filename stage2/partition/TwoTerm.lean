@@ -170,7 +170,7 @@ theorem nth_zipAdd : ∀ (xs ys : List Nat) (m : Nat), m < xs.length →
     | nil =>
       -- `zipAdd (x :: xs) [] = x :: xs`, and the missing second operand is zero
       show nth (x :: xs) m = nth (x :: xs) m + nth [] m
-      rw [nth_nil]
+      rw [nth_nil, Nat.add_zero]
     | cons y ys =>
       cases m with
       | zero => rfl
@@ -187,7 +187,7 @@ theorem nth_append : ∀ (as bs : List Nat) (m : Nat),
   | nil =>
     intro bs m
     show nth bs m = if m < 0 then nth [] m else nth bs (m - 0)
-    rw [if_neg (by omega)]
+    rw [if_neg (by omega), Nat.sub_zero]
   | cons a as ih =>
     intro bs m
     cases m with
@@ -231,13 +231,291 @@ theorem nth_drop : ∀ (xs : List Nat) (d m : Nat),
   | cons x xs ih =>
     intro d m
     cases d with
-    | zero => rfl
+    | zero =>
+      -- `List.drop 0` vanishes definitionally, but `0 + m` does not reduce to
+      -- `m`: `Nat.add` recurses on its second argument, so it is stuck until
+      -- that argument is a literal.
+      show nth (x :: xs) m = nth (x :: xs) (0 + m)
+      rw [Nat.zero_add]
     | succ dp =>
+      have hre : dp + 1 + m = (dp + m) + 1 := by omega
       show nth (xs.drop dp) m = nth (x :: xs) (dp + 1 + m)
-      rw [ih dp m]
-      show nth xs (dp + m) = nth (x :: xs) (dp + 1 + m)
-      have : dp + 1 + m = (dp + m) + 1 := by omega
-      rw [this]
+      rw [hre]
+      -- stripping the cons here is definitional; `exact` then closes it
+      show nth (xs.drop dp) m = nth xs (dp + m)
+      exact ih dp m
+
+
+/-! ## The specification's own sum, reused verbatim
+
+`specSum`, `specSum_lt` and `specSum_ge` are taken unchanged from
+`SubmissionPacked.lean`, where they are already proved and where `specSum` is
+definitionally the specification's sum, so `partAux (k+1) m` and
+`specSum (partAux k) (k+1) m` are the same term. Reusing proven code rather than
+re-deriving it is the point. `foldl_add_start` comes along because `specSum_ge`
+needs it. -/
+
+theorem foldl_add_start : ∀ (xs : List Nat) (a : Nat),
+    xs.foldl (· + ·) a = a + xs.foldl (· + ·) 0 := by
+  intro xs
+  induction xs with
+  | nil => intro a; simp
+  | cons x xs ih =>
+    intro a
+    show xs.foldl (· + ·) (a + x) = a + xs.foldl (· + ·) (0 + x)
+    rw [ih (a + x), ih (0 + x)]
+    omega
+
+def specSum (g : Nat → Nat) (d m : Nat) : Nat :=
+  ((List.range (m / d + 1)).map (fun j => g (m - j * d))).foldl (· + ·) 0
+
+theorem specSum_lt (g : Nat → Nat) (d m : Nat) (h : m < d) : specSum g d m = g m := by
+  have hdiv : m / d = 0 := Nat.div_eq_of_lt h
+  show ((List.range (m / d + 1)).map (fun j => g (m - j * d))).foldl (· + ·) 0 = g m
+  rw [hdiv]
+  simp
+
+theorem specSum_ge (g : Nat → Nat) (d m : Nat) (hd : 0 < d) (h : d ≤ m) :
+    specSum g d m = g m + specSum g d (m - d) := by
+  have hdiv : m / d = (m - d) / d + 1 := Nat.div_eq_sub_div hd h
+  have hmap : ∀ (l : List Nat),
+      l.map (fun j => g (m - Nat.succ j * d)) = l.map (fun j => g (m - d - j * d)) := by
+    intro l
+    induction l with
+    | nil => rfl
+    | cons x xs ihl =>
+      have hx : m - Nat.succ x * d = m - d - x * d := by rw [Nat.succ_mul]; omega
+      show g (m - Nat.succ x * d) :: xs.map (fun j => g (m - Nat.succ j * d))
+          = g (m - d - x * d) :: xs.map (fun j => g (m - d - j * d))
+      rw [hx, ihl]
+  show ((List.range (m / d + 1)).map (fun j => g (m - j * d))).foldl (· + ·) 0
+      = g m + ((List.range ((m - d) / d + 1)).map
+          (fun j => g (m - d - j * d))).foldl (· + ·) 0
+  rw [hdiv, List.range_succ_eq_map, List.map_cons, List.map_map]
+  show (g (m - 0 * d) :: ((List.range ((m - d) / d + 1)).map
+      (fun j => g (m - Nat.succ j * d)))).foldl (· + ·) 0
+      = g m + ((List.range ((m - d) / d + 1)).map
+          (fun j => g (m - d - j * d))).foldl (· + ·) 0
+  rw [hmap, List.foldl_cons, foldl_add_start]
+  simp
+
+/-- The sum only ever reads indices `m - j*d`, none of which exceeds `m`, so two
+functions agreeing up to `m` give the same sum. Written as a congruence on the
+mapped list, in the same style as `hmap` above, rather than through a
+`List.map_congr` whose name would be a guess. -/
+theorem specSum_congr (g1 g2 : Nat → Nat) (d m : Nat)
+    (h : ∀ i, i ≤ m → g1 i = g2 i) : specSum g1 d m = specSum g2 d m := by
+  have hmap : ∀ (l : List Nat),
+      l.map (fun j => g1 (m - j * d)) = l.map (fun j => g2 (m - j * d)) := by
+    intro l
+    induction l with
+    | nil => rfl
+    | cons x xs ihl =>
+      show g1 (m - x * d) :: xs.map (fun j => g1 (m - j * d))
+          = g2 (m - x * d) :: xs.map (fun j => g2 (m - j * d))
+      rw [h (m - x * d) (by omega), ihl]
+  show ((List.range (m / d + 1)).map (fun j => g1 (m - j * d))).foldl (· + ·) 0
+      = ((List.range (m / d + 1)).map (fun j => g2 (m - j * d))).foldl (· + ·) 0
+  rw [hmap]
+
+/-! ## One pass computes that sum
+
+`passAux_succ` exists so no later proof has to see through the `let` in
+`passAux`. The `let` stays in the definition because naming the block is what
+makes the kernel build it once, and removing it to make proofs easier would put
+the cost back. -/
+
+theorem passAux_succ (d fuel x : Nat) (xs prev : List Nat) :
+    passAux d (fuel + 1) (x :: xs) prev
+      = zipAdd ((x :: xs).take d) prev
+        ++ passAux d fuel ((x :: xs).drop d) (zipAdd ((x :: xs).take d) prev) := by
+  rfl
+
+/-- (c) A pass preserves the length. Needs `0 < d`: at `d = 0` every block is
+empty and the fuel runs out instead of the list. -/
+theorem passAux_length (d : Nat) (hd : 0 < d) :
+    ∀ (fuel : Nat) (xs prev : List Nat), xs.length ≤ fuel →
+      (passAux d fuel xs prev).length = xs.length := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro xs prev h
+    cases xs with
+    | nil => rfl
+    | cons x xs => exact absurd h (by simp)
+  | succ f ih =>
+    intro xs prev h
+    cases xs with
+    | nil => rfl
+    | cons x xs =>
+      have hsub : ((x :: xs).drop d).length ≤ f := by
+        simp only [List.length_drop, List.length_cons] at *
+        omega
+      rw [passAux_succ, List.length_append, zipAdd_length, ih _ _ hsub]
+      simp only [List.length_take, List.length_drop, List.length_cons]
+      omega
+
+/-- (a) Inside the first block there is no earlier output to add, so the pass
+returns the row plus whatever block was handed in. No induction is needed: the
+index lands in the first block and `nth_append` reads it straight out. -/
+theorem passAux_first (d : Nat) (hd : 0 < d) :
+    ∀ (fuel : Nat) (xs prev : List Nat) (m : Nat), xs.length ≤ fuel → m < d →
+      m < xs.length → nth (passAux d fuel xs prev) m = nth xs m + nth prev m := by
+  intro fuel
+  cases fuel with
+  | zero => intro xs prev m h _ hm; omega
+  | succ f =>
+    intro xs prev m _ hmd hm
+    cases xs with
+    | nil => simp at hm
+    | cons x xs =>
+      have hblen : (zipAdd ((x :: xs).take d) prev).length
+          = min d (xs.length + 1) := by
+        rw [zipAdd_length]
+        simp only [List.length_take, List.length_cons]
+      have hin : m < min d (xs.length + 1) := by
+        simp only [List.length_cons] at hm
+        omega
+      rw [passAux_succ, nth_append, hblen, if_pos hin,
+          nth_zipAdd _ _ m (by
+            rw [List.length_take]
+            simp only [List.length_cons]
+            omega),
+          nth_take _ d m hmd]
+
+/-- (b) Past the first block the pass peels one term: the output at `m` is the
+row at `m` plus the output at `m - d`. This is the two-term identity, and it is
+where the block structure earns its keep. Position `m` sits at some offset inside
+its block, and `m - d` sits at the SAME offset in the block before it, which is
+exactly the block the recursive call was handed as its `prev`. -/
+theorem passAux_peel (d : Nat) (hd : 0 < d) :
+    ∀ (fuel : Nat) (xs prev : List Nat) (m : Nat), xs.length ≤ fuel → d ≤ m →
+      m < xs.length →
+      nth (passAux d fuel xs prev) m
+        = nth xs m + nth (passAux d fuel xs prev) (m - d) := by
+  intro fuel
+  induction fuel with
+  | zero => intro xs prev m h _ hm; omega
+  | succ f ih =>
+    intro xs prev m hfuel hdm hm
+    cases xs with
+    | nil => simp at hm
+    | cons x xs =>
+      simp only [List.length_cons] at hm hfuel
+      -- `d ≤ m < length`, so the first block is full and is exactly `d` long
+      have hblen : (zipAdd ((x :: xs).take d) prev).length = d := by
+        rw [zipAdd_length]
+        simp only [List.length_take, List.length_cons]
+        omega
+      have hsub : ((x :: xs).drop d).length ≤ f := by
+        simp only [List.length_drop, List.length_cons]
+        omega
+      have hmlt : m - d < ((x :: xs).drop d).length := by
+        simp only [List.length_drop, List.length_cons]
+        omega
+      have hrow : nth ((x :: xs).drop d) (m - d) = nth (x :: xs) m := by
+        rw [nth_drop]
+        congr 1
+        omega
+      rw [passAux_succ, nth_append, nth_append]
+      simp only [hblen]
+      rw [if_neg (by omega)]
+      by_cases hsmall : m - d < d
+      · -- `m - d` falls in the recursive call's FIRST block, whose `prev` is the
+        -- block just built, so (a) applies and yields the row term plus it
+        rw [if_pos hsmall, passAux_first d hd f _ _ (m - d) hsub hsmall hmlt, hrow]
+      · -- `m - d` is past that block too, so the same peeling applies one deeper
+        rw [if_neg hsmall, ih _ _ (m - d) hsub (by omega) hmlt, hrow]
+
+theorem pass_length (d : Nat) (hd : 0 < d) (row : List Nat) :
+    (pass d row).length = row.length :=
+  passAux_length d hd row.length row [] (Nat.le_refl _)
+
+theorem pass_lt (d : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
+    (hmd : m < d) (hlt : m < row.length) : nth (pass d row) m = nth row m := by
+  show nth (passAux d row.length row []) m = nth row m
+  rw [passAux_first d hd row.length row [] m (Nat.le_refl _) hmd hlt, nth_nil,
+      Nat.add_zero]
+
+theorem pass_peel (d : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
+    (hge : d ≤ m) (hlt : m < row.length) :
+    nth (pass d row) m = nth row m + nth (pass d row) (m - d) :=
+  passAux_peel d hd row.length row [] m (Nat.le_refl _) hge hlt
+
+/-- The pass computes the specification's sum. This is strong induction on `m`,
+written as induction on an explicit bound rather than through well-founded
+recursion. That is deliberate even though this one is only a proof: the kernel
+does not unfold well-founded recursion, and reaching for it is exactly what
+leaves two of this competition's shipped starters unreducible at every judged
+size, so the repository keeps to structural recursion throughout. -/
+theorem pass_nth (d : Nat) (hd : 0 < d) (row : List Nat) :
+    ∀ (bound m : Nat), m ≤ bound → m < row.length →
+      nth (pass d row) m = specSum (nth row) d m := by
+  intro bound
+  induction bound with
+  | zero =>
+    intro m hm hlt
+    have hm0 : m = 0 := by omega
+    subst hm0
+    rw [specSum_lt (nth row) d 0 hd]
+    exact pass_lt d hd row 0 hd hlt
+  | succ b ih =>
+    intro m hm hlt
+    by_cases hmd : m < d
+    · rw [specSum_lt (nth row) d m hmd]
+      exact pass_lt d hd row m hmd hlt
+    · have hge : d ≤ m := by omega
+      rw [specSum_ge (nth row) d m hd hge, pass_peel d hd row m hge hlt,
+          ih (m - d) (by omega) (by omega)]
+
+/-! ## The rows, and correctness for every input -/
+
+theorem nth_replicate_zero : ∀ (n m : Nat), nth (List.replicate n 0) m = 0 := by
+  intro n
+  induction n with
+  | zero => intro m; exact nth_nil m
+  | succ np ih =>
+    intro m
+    cases m with
+    | zero => rfl
+    | succ mp => exact ih mp
+
+theorem rowsL_length (n : Nat) : ∀ (k : Nat), (rowsL n k).length = n + 1 := by
+  intro k
+  induction k with
+  | zero =>
+    show (1 :: List.replicate n 0).length = n + 1
+    simp
+  | succ kp ih =>
+    show (pass (kp + 1) (rowsL n kp)).length = n + 1
+    rw [pass_length (kp + 1) (Nat.succ_pos kp) (rowsL n kp), ih]
+
+theorem rowsL_correct (n : Nat) :
+    ∀ (k m : Nat), m < n + 1 → nth (rowsL n k) m = partAux k m := by
+  intro k
+  induction k with
+  | zero =>
+    intro m _
+    cases m with
+    | zero => rfl
+    | succ mp =>
+      show nth (List.replicate n 0) mp = partAux 0 (mp + 1)
+      rw [nth_replicate_zero]
+      rfl
+  | succ kp ih =>
+    intro m hm
+    -- `partAux (kp+1) m` IS `specSum (partAux kp) (kp+1) m`, so saying so with
+    -- `show` lets the two rewrites below leave both sides identical
+    show nth (pass (kp + 1) (rowsL n kp)) m = specSum (partAux kp) (kp + 1) m
+    rw [pass_nth (kp + 1) (Nat.succ_pos kp) (rowsL n kp) m m (Nat.le_refl m)
+          (by rw [rowsL_length]; omega),
+        specSum_congr (nth (rowsL n kp)) (partAux kp) (kp + 1) m
+          (fun i hi => ih i (by omega))]
+
+theorem impl_correct : ∀ (n : Nat), impl n = partitionSpec n := by
+  intro n
+  show nth (rowsL n n) n = partAux n n
+  exact rowsL_correct n n n (by omega)
 
 end TwoTerm
 
