@@ -95,12 +95,100 @@ theorem minFacFast_eq (n : Nat) : minFacFast n = Nat.minFac n := by
     calc n < 3 + 2 * n := this
       _ ≤ (3 + 2 * n) * (3 + 2 * n) := Nat.le_mul_of_pos_left _ (by omega)
 
-/-! ## Still the starter, until the rest of the machinery is proved -/
+/-! ## Step 2: a structural factorisation
 
-def impl (n : Nat) : Int := mertensSpec n
+`Nat.primeFactorsList` recurses on `n / minFac n`, which is well founded. With
+`minFacFast_eq` in hand the same walk can be written with a fuel, and the two
+agree as long as the fuel lasts. Each step at least halves `n`, so `n` itself
+is far more fuel than needed. -/
+
+def factorsFast : Nat → Nat → List Nat
+  | 0,        _ => []
+  | fuel + 1, n =>
+      if n < 2 then []
+      else
+        let p := minFacFast n
+        p :: factorsFast fuel (n / p)
+
+theorem factorsFast_eq :
+    ∀ fuel n, n ≤ fuel → factorsFast fuel n = Nat.primeFactorsList n := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro n hn
+    have : n = 0 := by omega
+    subst this
+    rfl
+  | succ f ih =>
+    intro n hn
+    rw [factorsFast]
+    by_cases hsmall : n < 2
+    · simp only [hsmall, if_true]
+      interval_cases n
+      · rfl
+      · rfl
+    · simp only [hsmall, if_false]
+      have h2 : 2 ≤ n := by omega
+      have hne1 : n ≠ 1 := by omega
+      have hp : Nat.Prime (Nat.minFac n) := Nat.minFac_prime hne1
+      have hp2 : 2 ≤ Nat.minFac n := hp.two_le
+      have hpos : 0 < n := by omega
+      -- the tail argument shrinks, which is what makes the fuel enough
+      have hdiv : n / Nat.minFac n ≤ f := by
+        have : n / Nat.minFac n ≤ n / 2 := Nat.div_le_div_left hp2 (by omega)
+        omega
+      rw [minFacFast_eq]
+      match n, h2 with
+      | (k + 2), _ =>
+        rw [Nat.primeFactorsList]
+        exact congrArg _ (ih _ (by rw [minFacFast_eq] at hdiv ⊢; exact hdiv))
+
+/-! ## Step 3: moebius, and the sum
+
+With a reducible factorisation, Mathlib's own characterisation of moebius
+applies directly: zero when the argument is not squarefree, and the sign of the
+factor count when it is. -/
+
+def muFast (n : Nat) : Int :=
+  if n = 0 then 0
+  else
+    let fs := factorsFast n n
+    if fs.Nodup then (-1) ^ fs.length else 0
+
+theorem muFast_eq (n : Nat) :
+    muFast n = (ArithmeticFunction.moebius n : Int) := by
+  rw [muFast]
+  by_cases hz : n = 0
+  · subst hz
+    simp
+  · simp only [hz, if_false]
+    have hfs : factorsFast n n = Nat.primeFactorsList n :=
+      factorsFast_eq n n (Nat.le_refl n)
+    rw [hfs]
+    by_cases hnd : (Nat.primeFactorsList n).Nodup
+    · have hsq : Squarefree n :=
+        (Nat.squarefree_iff_nodup_primeFactorsList hz).mpr hnd
+      rw [if_pos hnd, ArithmeticFunction.moebius_apply_of_squarefree hsq,
+          ArithmeticFunction.cardFactors_apply]
+    · have hsq : ¬ Squarefree n := fun h =>
+        hnd ((Nat.squarefree_iff_nodup_primeFactorsList hz).mp h)
+      rw [if_neg hnd, ArithmeticFunction.moebius_eq_zero_of_not_squarefree hsq]
+
+/-- The Mertens sum, accumulated structurally. -/
+def sumMu : Nat → Int
+  | 0     => muFast 0
+  | k + 1 => sumMu k + muFast (k + 1)
+
+def impl (n : Nat) : Int := sumMu n
 
 theorem impl_correct : ∀ n, impl n = mertensSpec n := by
   intro n
-  rfl
+  show sumMu n = mertensSpec n
+  induction n with
+  | zero =>
+    rw [sumMu, mertensSpec, muFast_eq]
+    simp
+  | succ k ih =>
+    rw [sumMu, ih, mertensSpec, mertensSpec, Finset.sum_range_succ, muFast_eq]
 
 end Submission
