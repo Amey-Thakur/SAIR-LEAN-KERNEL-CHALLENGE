@@ -82,15 +82,23 @@ def passAux (d : Nat) : Nat → List Nat → List Nat → List Nat
 
 /-- One pass over the whole row. The fuel is the length, which is enough because
 `d` is at least one on every call, so every block consumes at least one element. -/
-def pass (d : Nat) (row : List Nat) : List Nat :=
-  passAux d row.length row []
+/-- One pass over the whole row.
+
+The fuel is a parameter rather than `row.length`. Taking the length here would
+mention the row a second time, and two occurrences of the previous row double the
+work at every level of the table: written that way this measured 3.11 s at n = 14,
+48.84 s at n = 18 and timed out above, a factor of 15.7 for four more units of n,
+which is 2 to the 4th. The caller knows the length is n + 1 and passes it, so the
+previous row occurs exactly once. -/
+def pass (d fuel : Nat) (row : List Nat) : List Nat :=
+  passAux d fuel row []
 
 /-- Row 0 is the table's base case: one partition of 0, none of anything else.
 Row `k+1` is row `k` after the pass for part size `k+1`. The previous row is
 named once, so it is built once. -/
 def rowsL (n : Nat) : Nat → List Nat
   | 0     => 1 :: List.replicate n 0
-  | k + 1 => pass (k + 1) (rowsL n k)
+  | k + 1 => pass (k + 1) (n + 1) (rowsL n k)
 
 def nth : List Nat → Nat → Nat
   | [],      _      => 0
@@ -427,20 +435,20 @@ theorem passAux_peel (d : Nat) (hd : 0 < d) :
       · -- `m - d` is past that block too, so the same peeling applies one deeper
         rw [if_neg hsmall, ih _ _ (m - d) hsub (by omega) hmlt, hrow]
 
-theorem pass_length (d : Nat) (hd : 0 < d) (row : List Nat) :
-    (pass d row).length = row.length :=
-  passAux_length d hd row.length row [] (Nat.le_refl _)
+theorem pass_length (d fuel : Nat) (hd : 0 < d) (row : List Nat)
+    (hf : row.length ≤ fuel) : (pass d fuel row).length = row.length :=
+  passAux_length d hd fuel row [] hf
 
-theorem pass_lt (d : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
-    (hmd : m < d) (hlt : m < row.length) : nth (pass d row) m = nth row m := by
-  show nth (passAux d row.length row []) m = nth row m
-  rw [passAux_first d hd row.length row [] m (Nat.le_refl _) hmd hlt, nth_nil,
-      Nat.add_zero]
+theorem pass_lt (d fuel : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
+    (hf : row.length ≤ fuel) (hmd : m < d) (hlt : m < row.length) :
+    nth (pass d fuel row) m = nth row m := by
+  show nth (passAux d fuel row []) m = nth row m
+  rw [passAux_first d hd fuel row [] m hf hmd hlt, nth_nil, Nat.add_zero]
 
-theorem pass_peel (d : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
-    (hge : d ≤ m) (hlt : m < row.length) :
-    nth (pass d row) m = nth row m + nth (pass d row) (m - d) :=
-  passAux_peel d hd row.length row [] m (Nat.le_refl _) hge hlt
+theorem pass_peel (d fuel : Nat) (hd : 0 < d) (row : List Nat) (m : Nat)
+    (hf : row.length ≤ fuel) (hge : d ≤ m) (hlt : m < row.length) :
+    nth (pass d fuel row) m = nth row m + nth (pass d fuel row) (m - d) :=
+  passAux_peel d hd fuel row [] m hf hge hlt
 
 /-- The pass computes the specification's sum. This is strong induction on `m`,
 written as induction on an explicit bound rather than through well-founded
@@ -448,9 +456,10 @@ recursion. That is deliberate even though this one is only a proof: the kernel
 does not unfold well-founded recursion, and reaching for it is exactly what
 leaves two of this competition's shipped starters unreducible at every judged
 size, so the repository keeps to structural recursion throughout. -/
-theorem pass_nth (d : Nat) (hd : 0 < d) (row : List Nat) :
+theorem pass_nth (d fuel : Nat) (hd : 0 < d) (row : List Nat)
+    (hf : row.length ≤ fuel) :
     ∀ (bound m : Nat), m ≤ bound → m < row.length →
-      nth (pass d row) m = specSum (nth row) d m := by
+      nth (pass d fuel row) m = specSum (nth row) d m := by
   intro bound
   induction bound with
   | zero =>
@@ -458,14 +467,14 @@ theorem pass_nth (d : Nat) (hd : 0 < d) (row : List Nat) :
     have hm0 : m = 0 := by omega
     subst hm0
     rw [specSum_lt (nth row) d 0 hd]
-    exact pass_lt d hd row 0 hd hlt
+    exact pass_lt d fuel hd row 0 hf hd hlt
   | succ b ih =>
     intro m hm hlt
     by_cases hmd : m < d
     · rw [specSum_lt (nth row) d m hmd]
-      exact pass_lt d hd row m hmd hlt
+      exact pass_lt d fuel hd row m hf hmd hlt
     · have hge : d ≤ m := by omega
-      rw [specSum_ge (nth row) d m hd hge, pass_peel d hd row m hge hlt,
+      rw [specSum_ge (nth row) d m hd hge, pass_peel d fuel hd row m hf hge hlt,
           ih (m - d) (by omega) (by omega)]
 
 /-! ## The rows, and correctness for every input -/
@@ -487,8 +496,9 @@ theorem rowsL_length (n : Nat) : ∀ (k : Nat), (rowsL n k).length = n + 1 := by
     show (1 :: List.replicate n 0).length = n + 1
     simp
   | succ kp ih =>
-    show (pass (kp + 1) (rowsL n kp)).length = n + 1
-    rw [pass_length (kp + 1) (Nat.succ_pos kp) (rowsL n kp), ih]
+    show (pass (kp + 1) (n + 1) (rowsL n kp)).length = n + 1
+    rw [pass_length (kp + 1) (n + 1) (Nat.succ_pos kp) (rowsL n kp)
+          (Nat.le_of_eq ih), ih]
 
 theorem rowsL_correct (n : Nat) :
     ∀ (k m : Nat), m < n + 1 → nth (rowsL n k) m = partAux k m := by
@@ -506,8 +516,10 @@ theorem rowsL_correct (n : Nat) :
     intro m hm
     -- `partAux (kp+1) m` IS `specSum (partAux kp) (kp+1) m`, so saying so with
     -- `show` lets the two rewrites below leave both sides identical
-    show nth (pass (kp + 1) (rowsL n kp)) m = specSum (partAux kp) (kp + 1) m
-    rw [pass_nth (kp + 1) (Nat.succ_pos kp) (rowsL n kp) m m (Nat.le_refl m)
+    show nth (pass (kp + 1) (n + 1) (rowsL n kp)) m
+        = specSum (partAux kp) (kp + 1) m
+    rw [pass_nth (kp + 1) (n + 1) (Nat.succ_pos kp) (rowsL n kp)
+          (Nat.le_of_eq (rowsL_length n kp)) m m (Nat.le_refl m)
           (by rw [rowsL_length]; omega),
         specSum_congr (nth (rowsL n kp)) (partAux kp) (kp + 1) m
           (fun i hi => ih i (by omega))]
