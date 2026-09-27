@@ -17,6 +17,7 @@ on:
     paths:
       - "stage2/ca-rule110/**"
       - "stage2/primitives.py"
+      - "stage2/widthcost.py"
       - ".github/workflows/ca.yml"
   workflow_dispatch:
 
@@ -59,6 +60,16 @@ jobs:
       # row have now been wrong in opposite directions, so the primitives get
       # measured rather than assumed. It does not fail the run: the table is
       # the output.
+      # The step above is much weaker than it looks: one operation costing
+      # 183,000 instructions is 0.06 ms and every case there was measured
+      # against 0.27 s of process startup, so it can rule out catastrophic
+      # unfolding and nothing finer. This holds the step count fixed at 20,000
+      # and varies only the width, which is the comparison the 92x gap needs.
+      - name: What operand width costs per reduction step
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: python ../../../stage2/widthcost.py
+
       - name: Time one primitive at a time on a large operand
         continue-on-error: true
         working-directory: upstream/problems/ca-rule110
