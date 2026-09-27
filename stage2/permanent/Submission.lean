@@ -35,11 +35,15 @@ Core Lean only; the problem package has no Mathlib dependency.
 
 namespace Submission
 
+/-- One cell of a row, kept only when it can contribute. Named rather than
+written inline so the correspondence proof can rewrite with it: `simp` will not
+reduce a `let` inside a `filterMap` lambda on its own. -/
+def cellOf (row : List Nat) (j : Nat) : Option (Nat × Nat) :=
+  if row.getD j 0 = 0 then none else some (j, row.getD j 0)
+
 /-- The non-zero cells of a row, with their column indices. -/
 def rowPairs (width : Nat) (row : List Nat) : List (Nat × Nat) :=
-  (List.range width).filterMap (fun j =>
-    let e := row.getD j 0
-    if e = 0 then none else some (j, e))
+  (List.range width).filterMap (cellOf row)
 
 /-- The same search, over the sparse rows. -/
 def permanentFast (width : Nat) : List (List (Nat × Nat)) → Nat → Nat
@@ -58,9 +62,7 @@ theorem foldl_pairs_eq (width : Nat) (rows : List (List Nat))
     (rowsP : List (List (Nat × Nat))) (row : List Nat) (used : Nat)
     (hrec : ∀ u, permanentFast width rowsP u = permanentRows width rows u) :
     ∀ (cols : List Nat) (acc : Nat),
-      (cols.filterMap (fun j =>
-          let e := row.getD j 0
-          if e = 0 then none else some (j, e))).foldl
+      (cols.filterMap (cellOf row)).foldl
         (fun total p =>
           if used.testBit p.1 then total
           else total + p.2 * permanentFast width rowsP (used ||| (1 <<< p.1)))
@@ -79,12 +81,30 @@ theorem foldl_pairs_eq (width : Nat) (rows : List (List Nat))
     intro acc
     by_cases hz : row.getD j 0 = 0
     · -- a zero cell is dropped on the left and skipped on the right
-      simp [List.filterMap, hz, ih]
-    · simp only [List.filterMap, hz, if_false, List.foldl_cons]
-      rw [hrec (used ||| (1 <<< j))]
-      by_cases hb : used.testBit j
-      · simp [hb, hz, ih]
-      · simp [hb, hz, ih]
+      have hnone : cellOf row j = none := by
+        rw [cellOf, if_pos hz]
+      rw [List.filterMap_cons_none hnone, List.foldl_cons]
+      have hskip : (if row.getD j 0 = 0 || used.testBit j then acc
+          else acc + row.getD j 0
+            * permanentRows width rows (used ||| (1 <<< j))) = acc := by
+        simp [hz]
+      rw [hskip]
+      exact ih acc
+    · have hsome : cellOf row j = some (j, row.getD j 0) := by
+        rw [cellOf, if_neg hz]
+      rw [List.filterMap_cons_some hsome, List.foldl_cons, List.foldl_cons]
+      -- with a non-zero entry the two accumulator steps are the same term
+      have hstep :
+          (if used.testBit j then acc
+            else acc + row.getD j 0
+              * permanentFast width rowsP (used ||| (1 <<< j)))
+          = (if row.getD j 0 = 0 || used.testBit j then acc
+            else acc + row.getD j 0
+              * permanentRows width rows (used ||| (1 <<< j))) := by
+        rw [hrec]
+        simp [hz]
+      rw [hstep]
+      exact ih _
 
 theorem permanentFast_eq (width : Nat) :
     ∀ (rows : List (List Nat)) (used : Nat),
