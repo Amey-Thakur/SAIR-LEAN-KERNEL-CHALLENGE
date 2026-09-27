@@ -18,6 +18,8 @@ on:
       - "stage2/fib/**"
       - "stage2/primecount/**"
       - "stage2/cases.py"
+      - "stage2/timecases.py"
+      - "stage2/report_times.py"
       - ".github/workflows/mathlib-problems.yml"
   workflow_dispatch:
 
