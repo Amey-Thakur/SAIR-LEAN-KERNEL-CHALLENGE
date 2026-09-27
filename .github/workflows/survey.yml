@@ -88,6 +88,34 @@ jobs:
             --timeout 120 \
             --out ../../../survey.json
 
+      # A candidate is optional: until one exists the run measures the shipped
+      # code, which is the point. When one does exist it must build, rest on
+      # permitted axioms, and reduce the same judged sizes.
+      - name: Build and time a candidate, if there is one
+        id: candidate
+        continue-on-error: true
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          src=../../../stage2/${{ matrix.problem }}/Submission.lean
+          if [ ! -f "$src" ]; then echo "no candidate"; exit 0; fi
+          if diff -q "$src" Submission.lean >/dev/null 2>&1; then
+            echo "candidate is byte-identical to the starter"; exit 0
+          fi
+          cp "$src" Submission.lean
+          set -o pipefail
+          lake build 2>&1 | tee ../../../candidate-build.log
+          printf 'import Submission
+#print axioms Submission.impl_correct
+' > Axioms.lean
+          lake env lean Axioms.lean 2>&1 | tee ../../../axioms.txt
+          if grep -qiE "unknown|error" ../../../axioms.txt; then
+            echo "impl_correct missing or errored"; exit 1
+          fi
+          if grep -qiE "sorryAx|native" ../../../axioms.txt; then
+            echo "FORBIDDEN AXIOM"; exit 1
+          fi
+          python ../../../stage2/survey.py             --problem ${{ matrix.problem }}             --sizes "${{ matrix.sizes }}"             --timeout 180             --out ../../../candidate-survey.json
+
       - name: Report
         if: always()
         run: |
@@ -115,5 +143,9 @@ jobs:
         if: always()
         with:
           name: survey-${{ matrix.problem }}
-          path: survey.json
+          path: |
+            survey.json
+            candidate-survey.json
+            candidate-build.log
+            axioms.txt
           if-no-files-found: warn

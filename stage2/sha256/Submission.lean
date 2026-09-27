@@ -90,10 +90,77 @@ theorem fastStep_correct (d : Digest) : fastStep d = sha256step d := by
 theorem fastStep_fun : fastStep = sha256step :=
   funext fastStep_correct
 
+/-! ## Fusing the schedule into the rounds
+
+The starter already removed the specification's list-indexed `extendW` in
+favour of a sixteen-field `Window`, which is the larger win and is kept. What
+remains is that `fastStep` still materialises two lists per block: a 64-word
+schedule, and then `K.zip` of it into 64 pairs. At 512 chain steps that is
+about 65,000 cons cells allocated only to drive a loop whose trip count is
+already known.
+
+Neither list is needed. The window gives the current word as `w.x0` in one
+projection, and sliding it by one produces the next, so the schedule can be
+walked as the rounds consume it. `K` is walked head-first in lockstep, which is
+O(1) per round and builds nothing.
+
+`roundsW_eq` is the correspondence, proved by induction on the constant list.
+The step is exactly the observation that pushing the window and dropping one
+word from the schedule are the same move:
+
+    [x1..x15] ++ (nextWord :: rest)  =  (w.push nextWord).toList ++ rest
+-/
+
+/-- The rounds, walking the schedule as it is generated. -/
+def roundsW : List Nat → Window → Digest → Digest
+  | [],      _, s => s
+  | k :: ks, w, s => roundsW ks (w.push w.nextWord) (round s k w.x0)
+
+theorem roundsW_eq :
+    ∀ (ks : List Nat) (w : Window) (s : Digest) (m : Nat),
+      ks.length ≤ 16 + m →
+      roundsW ks w s = rounds (ks.zip (w.toList ++ generate m w)) s := by
+  intro ks
+  induction ks with
+  | nil =>
+    intro w s m _
+    rfl
+  | cons k ks ih =>
+    intro w s m hm
+    match m, hm with
+    | (m + 1), hm =>
+      rw [roundsW]
+      show roundsW ks (w.push w.nextWord) (round s k w.x0)
+          = rounds ((k :: ks).zip (w.toList ++ generate (m + 1) w)) s
+      rw [ih (w.push w.nextWord) (round s k w.x0) m (by simp at hm ⊢; omega)]
+      -- the head of the schedule is w.x0, and its tail is the pushed window's
+      -- own schedule, which is the whole content of the step
+      simp [Window.toList, Window.push, generate, rounds, List.zip]
+
+/-- The constant list has exactly the 64 entries the schedule supplies. -/
+theorem roundsW_K (d : Digest) :
+    roundsW K (initialWindow d) iv = rounds (K.zip (fastSchedule d)) iv := by
+  rw [fastSchedule]
+  exact roundsW_eq K (initialWindow d) iv 48 (by decide)
+
+/-- The same step, with no list built per block. -/
+def fastStep2 (d : Digest) : Digest :=
+  let f := roundsW K (initialWindow d) iv
+  ⟨add32 iv.a f.a, add32 iv.b f.b, add32 iv.c f.c, add32 iv.d f.d,
+   add32 iv.e f.e, add32 iv.f f.f, add32 iv.g f.g, add32 iv.h f.h⟩
+
+theorem fastStep2_eq (d : Digest) : fastStep2 d = fastStep d := by
+  rw [fastStep2, fastStep, roundsW_K]
+
+theorem fastStep2_fun : fastStep2 = sha256step := by
+  funext d
+  rw [fastStep2_eq]
+  exact fastStep_correct d
+
 /-- TODO 1: Optimize this implementation. Keep it total and kernel-reducible. -/
 def impl (n : Nat) : Nat :=
   encodeDigest
-    (iterDigest fastStep (sha256Steps n) (seedDigest (sha256Seed n)))
+    (iterDigest fastStep2 (sha256Steps n) (seedDigest (sha256Seed n)))
 
 /-- TODO 2: Prove that `impl n` equals `sha256Spec n` for every natural number n.
 Keep the theorem statement unchanged. -/
@@ -101,6 +168,6 @@ theorem impl_correct : ∀ n, impl n = sha256Spec n := fun n =>
   congrArg
     (fun step => encodeDigest
       (iterDigest step (sha256Steps n) (seedDigest (sha256Seed n))))
-    fastStep_fun
+    fastStep2_fun
 
 end Submission
