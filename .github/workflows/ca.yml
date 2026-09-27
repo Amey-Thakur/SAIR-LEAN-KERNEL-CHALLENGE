@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - "stage2/ca-rule110/**"
+      - "stage2/primitives.py"
       - ".github/workflows/ca.yml"
   workflow_dispatch:
 
@@ -50,6 +51,18 @@ jobs:
           curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
           sh elan-init.sh -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # Which primitives the kernel accelerates and which it unfolds. This is
+      # not about ca-rule110; it is here because this is the only package
+      # without a Mathlib dependency, so the answer costs a Lean download
+      # rather than a Mathlib build. Two cost models for the packed partition
+      # row have now been wrong in opposite directions, so the primitives get
+      # measured rather than assumed. It does not fail the run: the table is
+      # the output.
+      - name: Time one primitive at a time on a large operand
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: python ../../../stage2/primitives.py
 
       # The algorithm is settled in Python before any Lean is written, so a
       # failure here is a failure of the design rather than of the proof, and
