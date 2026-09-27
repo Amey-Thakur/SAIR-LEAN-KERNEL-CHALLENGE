@@ -116,18 +116,23 @@ theorem factorsFast_eq :
   induction fuel with
   | zero =>
     intro n hn
-    have : n = 0 := by omega
-    subst this
+    have hn0 : n = 0 := by omega
+    subst hn0
+    -- `Nat.primeFactorsList 0` is well-founded recursion and does not reduce
+    -- definitionally, so `rfl` cannot see through it; the equation lemma can.
+    rw [Nat.primeFactorsList_zero]
     rfl
   | succ f ih =>
     intro n hn
     rw [factorsFast]
     by_cases hsmall : n < 2
-    · simp only [hsmall, if_true]
-      interval_cases n
-      · rfl
-      · rfl
-    · simp only [hsmall, if_false]
+    · -- `if_neg`/`if_pos`, not `if_false`: the condition is `n < 2`, not `False`
+      rw [if_pos hsmall]
+      have : n = 0 ∨ n = 1 := by omega
+      rcases this with h | h <;> subst h
+      · exact (Nat.primeFactorsList_zero).symm
+      · exact (Nat.primeFactorsList_one).symm
+    · rw [if_neg hsmall]
       have h2 : 2 ≤ n := by omega
       have hne1 : n ≠ 1 := by omega
       have hp : Nat.Prime (Nat.minFac n) := Nat.minFac_prime hne1
@@ -186,9 +191,15 @@ theorem impl_correct : ∀ n, impl n = mertensSpec n := by
   show sumMu n = mertensSpec n
   induction n with
   | zero =>
-    rw [sumMu, mertensSpec, muFast_eq]
+    show muFast 0 = mertensSpec 0
+    rw [muFast_eq, mertensSpec]
     simp
   | succ k ih =>
-    rw [sumMu, ih, mertensSpec, mertensSpec, Finset.sum_range_succ, muFast_eq]
+    -- peel one term off the spec's own sum rather than rewriting it twice
+    have hstep : mertensSpec (k + 1)
+        = mertensSpec k + (ArithmeticFunction.moebius (k + 1) : Int) := by
+      rw [mertensSpec, mertensSpec, Finset.sum_range_succ]
+    show sumMu k + muFast (k + 1) = mertensSpec (k + 1)
+    rw [hstep, ih, muFast_eq]
 
 end Submission
