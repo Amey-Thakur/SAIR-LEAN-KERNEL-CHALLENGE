@@ -58,6 +58,19 @@ def permanentFast (width : Nat) : List (List (Nat × Nat)) → Nat → Nat
 The only thing to prove is that dropping the zero cells before the fold gives
 the same answer as testing for them inside it. -/
 
+/-! The guard `entry = 0 || used.testBit j` mixes a Prop with a Bool, so Lean
+inserts a `decide`, and three attempts at this proof failed trying to collapse
+that coercion in place. Stated on plain variables it collapses immediately, so
+it is stated on plain variables once and rewritten with thereafter. -/
+
+theorem guard_zero (e acc x : Nat) (b : Bool) (h : e = 0) :
+    (if e = 0 || b then acc else x) = acc := by
+  simp [h]
+
+theorem guard_nonzero (e acc x : Nat) (b : Bool) (h : ¬ (e = 0)) :
+    (if e = 0 || b then acc else x) = (if b then acc else x) := by
+  simp [h]
+
 theorem foldl_pairs_eq (width : Nat) (rows : List (List Nat))
     (rowsP : List (List (Nat × Nat))) (row : List Nat) (used : Nat)
     (hrec : ∀ u, permanentFast width rowsP u = permanentRows width rows u) :
@@ -83,22 +96,13 @@ theorem foldl_pairs_eq (width : Nat) (rows : List (List Nat))
     · -- a zero cell is dropped on the left and skipped on the right
       have hnone : cellOf row j = none := by
         rw [cellOf, if_pos hz]
-      rw [List.filterMap_cons_none hnone, List.foldl_cons]
-      -- rewrite the condition itself rather than the whole `if`: the guard is
-      -- a Bool, so the branch is `cond = true`, and `simp` on the entry alone
-      -- does not carry through that coercion
-      have hcond : (row.getD j 0 = 0 || used.testBit j) = true := by
-        simp [hz]
-      rw [hcond, if_true]
+      rw [List.filterMap_cons_none hnone, List.foldl_cons,
+          guard_zero _ _ _ _ hz]
       exact ih acc
     · have hsome : cellOf row j = some (j, row.getD j 0) := by
         rw [cellOf, if_neg hz]
-      rw [List.filterMap_cons_some hsome, List.foldl_cons, List.foldl_cons]
-      -- with a non-zero entry the guard collapses to the mask test, and the
-      -- two accumulator steps are then the same term
-      have hcond : (row.getD j 0 = 0 || used.testBit j) = used.testBit j := by
-        simp [hz]
-      rw [hcond, hrec]
+      rw [List.filterMap_cons_some hsome, List.foldl_cons, List.foldl_cons,
+          guard_nonzero _ _ _ _ hz, hrec]
       exact ih _
 
 theorem permanentFast_eq (width : Nat) :
