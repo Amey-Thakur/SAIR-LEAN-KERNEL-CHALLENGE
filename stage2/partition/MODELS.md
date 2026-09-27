@@ -147,3 +147,34 @@ between rank 8 (7,621,271) and rank 9 (20,512,781), so **rank 9**. An earlier
 count in `twoterm.py` said 10.1M and rank 8; it charged one unit for cutting a
 block where Lean pays two, once for `take d` and once for `drop d`, and understated
 the design by a third.
+
+### What the plateau is not
+
+Two hypotheses about the 1.43M plateau are already ruled out, and recording that
+is worth more than another guess.
+
+**It is not bought with a heavy proof.** Proof cost is unranked, and rank 2 spends
+39.4 billion units on `correctnessWork`, which suggested the leaders prove
+something hard -- Euler's pentagonal number theorem would give p(n) in far fewer
+additions -- to get a cheap computation. But **rank 4 reaches 1,457,591 with
+`correctnessWork` of 3,999,155,807, only 1.16x ours.** The plateau is reachable
+with a proof no larger than the one already written here, so it is a
+representational trick and not a theorem.
+
+**It is not reachable by fusing the fold.** Replacing the block formulation with a
+single recursion that walks the row while consuming the previous block costs MORE,
+not less: per element it pays a head, a tail, a cons to the output, a cons to the
+accumulator and the addition, plus an amortised reverse, which is about six units
+against the block version's four. An earlier note here said fusing would save
+about a quarter; it does not, and the block form is already the cheaper one.
+
+**What remains unexplained.** At about 700 units per single-word operation --
+which our own packed entry corroborates, 132,036,341 over 168,692 word operations
+being 783 -- the leaders' 1,429,499 buys roughly 1,900 operations, against the
+2,074 additions the identity needs at minimum. That is essentially zero
+bookkeeping, which no list representation can achieve. A packed row does reach
+about 720 operations across the six sizes, but each is charged by width, and the
+2,701-bit row makes each one cost 183,000. Getting to 1,985 per operation would
+need operands of two or three machine words, and a row wide enough to hold
+p(36) = 17,977 in 37 fields cannot be that narrow. So neither of our two
+representations explains the plateau, and the mechanism is still open.
