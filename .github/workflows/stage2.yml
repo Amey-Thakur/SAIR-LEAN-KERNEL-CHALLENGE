@@ -123,6 +123,20 @@ jobs:
       # The suspect is that the sweep names the previous row once in the source
       # and J+1 times in the unfolding. This times a variant where it occurs
       # exactly once, in the same job, at sizes a shared runner can resolve.
+      # The two-term design, implementation only. Costed at about 10,100,000
+      # against the 132,036,341 on the board, so it is worth a proof -- but the
+      # implementation and its agreement with the specification are established
+      # first, because a proof written for a design that computes the wrong
+      # thing is wasted. The agreement examples are inside the file, so
+      # compiling it IS the check.
+      - name: The two-term design computes the specification
+        continue-on-error: true
+        run: |
+          cp stage2/partition/TwoTerm.lean upstream/problems/partition/
+          cd upstream/problems/partition
+          lake build Spec
+          lake env lean TwoTerm.lean
+
       - name: Is the previous row reduced once, or once per sweep term
         continue-on-error: true
         run: |
