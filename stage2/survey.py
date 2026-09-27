@@ -72,7 +72,20 @@ def reduce_check(n: int, value: str, timeout: float) -> tuple[float | None, str]
         "import Submission\n"
         "set_option maxRecDepth 100000 in\n"
         f"theorem t : Submission.impl {n} = {value} := by rfl\n", timeout)
-    return (dt, "ok") if code == 0 else (None, out.strip()[:400])
+    if code == 0:
+        return dt, "ok"
+    text = out.strip()
+    # Two very different failures wear the same "rfl failed" hat. "not
+    # definitionally equal" means the kernel could not reduce the term at all,
+    # which is a fact about the submission. "maximum recursion depth" is a
+    # limit of the elaborator running this check, which the judge's own
+    # evaluation need not share. Reporting them as one thing would have called
+    # the sha256 starter dead when it is only deep.
+    kind = ("harness-limit: maxRecDepth"
+            if "maximum recursion depth" in text
+            else "does-not-reduce" if "not definitionally equal" in text
+            else "other")
+    return None, f"[{kind}] {text[:360]}"
 
 
 def main() -> int:
@@ -108,9 +121,19 @@ def main() -> int:
                          "seconds": round(dt, 2), "status": "ok"})
             print(f"    n={n:<12} = {shown:<26} kernel {dt:6.2f}s")
 
-    verdict = ("every judged size reduces" if reducible == len(sizes)
-               else f"only {reducible} of {len(sizes)} judged sizes reduce; "
-                    f"the starter scores nothing on the rest")
+    hard = sum(1 for r in rows if r.get("status", "").startswith("[does-not-reduce]"))
+    limit = sum(1 for r in rows if r.get("status", "").startswith("[harness-limit"))
+    if reducible == len(sizes):
+        verdict = "every judged size reduces"
+    elif hard:
+        verdict = (f"{hard} of {len(sizes)} judged sizes do not reduce at all; "
+                   f"the starter scores nothing on those")
+    elif limit:
+        verdict = (f"{limit} of {len(sizes)} hit this harness's recursion "
+                   f"limit, which is not the same as failing to reduce; "
+                   f"inconclusive, raise the limit or measure another way")
+    else:
+        verdict = f"{reducible} of {len(sizes)} reduced"
     print(f"  {verdict}")
 
     out = {"problem": args.problem, "rows": rows,
