@@ -86,11 +86,13 @@ theorem noFactorFrom_sound (p : Nat) :
       by_cases hdvd : p % d == 0
       · simp only [hdvd, if_true] at hrun
         exact absurd hrun (by simp)
-      · simp only [hdvd, if_false] at hrun
+      · simp only [hdvd] at hrun
         rcases Nat.eq_or_lt_of_le hdm with heq | hgt
-        · intro hdvdm
+        · -- `heq : d = m`, so the rewrite goes forward. `← heq` looks for `m`
+          -- in a hypothesis that only mentions `d`, and finds nothing.
+          intro hdvdm
           have hz : p % m = 0 := Nat.dvd_iff_mod_eq_zero.mp hdvdm
-          rw [← heq] at hdvd
+          rw [heq] at hdvd
           simp [hz] at hdvd
         · exact ih (d + 1) hrun m (by omega) hsq (by omega)
 
