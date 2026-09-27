@@ -41,8 +41,15 @@ def time_one(n: int, value: int, timeout: float) -> tuple[float | None, str]:
     # with `in` rather than set at the top of the file. Reducing a large
     # numeral goes deeper than the elaborator's default limit; that is a limit
     # on checking the answer, not on computing it.
+    # Three separate elaborator limits sit between this check and an answer,
+    # and each one has already been mistaken here for a failure of the
+    # submission: maxRecDepth stopped ca-rule110, maxHeartbeats stopped
+    # primecount at n = 1000, and the subprocess timeout is the third. None of
+    # them is the kernel refusing to reduce. All are lifted so that a failure
+    # reported by this harness means what it says.
     src = ("import Submission\n"
-           "set_option maxRecDepth 100000 in\n"
+           "set_option maxRecDepth 8000000 in\n"
+           "set_option maxHeartbeats 0 in\n"
            f"theorem bench : Submission.impl {n} = {value} := by rfl\n")
     with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=".",
                                      delete=False, encoding="utf-8") as fh:

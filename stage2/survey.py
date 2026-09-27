@@ -70,7 +70,8 @@ def reduce_check(n: int, value: str, timeout: float) -> tuple[float | None, str]
     """Whether the kernel reduces `impl n` to that literal, and how long."""
     code, out, dt = run_lean(
         "import Submission\n"
-        "set_option maxRecDepth 100000 in\n"
+        "set_option maxRecDepth 8000000 in\n"
+        "set_option maxHeartbeats 0 in\n"
         f"theorem t : Submission.impl {n} = {value} := by rfl\n", timeout)
     if code == 0:
         return dt, "ok"
@@ -81,7 +82,9 @@ def reduce_check(n: int, value: str, timeout: float) -> tuple[float | None, str]
     # limit of the elaborator running this check, which the judge's own
     # evaluation need not share. Reporting them as one thing would have called
     # the sha256 starter dead when it is only deep.
-    kind = ("harness-limit: maxRecDepth"
+    kind = ("harness-limit: maxHeartbeats"
+            if "maximum number of heartbeats" in text
+            else "harness-limit: maxRecDepth"
             if "maximum recursion depth" in text
             else "does-not-reduce" if "not definitionally equal" in text
             else "other")
