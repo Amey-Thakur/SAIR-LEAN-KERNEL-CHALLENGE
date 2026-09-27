@@ -121,6 +121,26 @@ def main() -> int:
             print((proc.stdout + proc.stderr)[:3000])
             return 1
         print(f"  {target}.lean compiles")
+
+    # The variant's definitions are inlined into each timing file rather than
+    # imported. `lake env lean Experiment.lean` typechecks the file but writes
+    # no olean, so `import Experiment` found nothing and every variant cell
+    # failed while the entry on the board timed fine -- which looked like the
+    # variant being slow rather than absent. Inlining keeps Experiment.lean the
+    # single source of truth: the definitions are read from it, so the timed
+    # code and the code whose agreement examples the kernel checked are the same
+    # text. The examples themselves are dropped, having already been checked
+    # above, and would otherwise be re-reduced inside every timing run.
+    # Cut at the agreement examples rather than filtering them out line by
+    # line: their doc comment would then have nothing to attach to, and a
+    # dangling `/-- ... -/` is a parse error, so the variant would have failed
+    # again for a second reason having nothing to do with its speed.
+    body = (here / "Experiment.lean").read_text(encoding="utf-8")
+    marker = "/-- Agreement at small inputs"
+    if marker in body:
+        body = body[:body.index(marker)]
+    lines = [ln for ln in body.splitlines() if not ln.startswith("import ")]
+    alt_defs = chr(10).join(lines)
     # Experiment.lean carries its own kernel-checked agreement examples at
     # n = 0, 1, 5, 10, 13 and 36, so compiling it is already a correctness
     # check; it cannot compile while computing the wrong thing at those sizes.
@@ -138,16 +158,18 @@ def main() -> int:
         old, sold = time_rfl(pkg, f"Submission.impl {n}", value, args.timeout,
                              "import Submission")
         new, snew = time_rfl(pkg, f"Alt.impl {n}", value, args.timeout,
-                             "import Experiment")
+                             "import Submission" + chr(10) + alt_defs)
         cells = f"{n:>6}{value:>22}"
         if old is None:
-            cells += f"{sold[:14]:>15}"
+            cells += f"{'failed':>15}"
+            print(f"         board: {sold}")
         else:
             net_old = max(0.0, old - base)
             tot_old += net_old
             cells += f"{net_old:>14.2f}s"
         if new is None:
-            cells += f"{snew[:11]:>12}"
+            cells += f"{'failed':>12}"
+            print(f"         variant: {snew}")
         else:
             net_new = max(0.0, new - base)
             tot_new += net_new
