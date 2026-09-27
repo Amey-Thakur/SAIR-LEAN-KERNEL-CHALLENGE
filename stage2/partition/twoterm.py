@@ -89,12 +89,20 @@ class Count:
 
 
 def chunk(d: int, xs: list[int], c: Count) -> list[list[int]]:
-    """Cut into consecutive blocks of d. The last block may be shorter."""
+    """Cut into consecutive blocks of d. The last block may be shorter.
+
+    Charged the way Lean pays for it rather than the way Python does. The Lean
+    definition cuts each block with `take d` and then advances with `drop d`, and
+    each of those walks the block, so a block of length L costs 2L rather than L.
+    An earlier version of this file charged L, understating the whole design by
+    about a third, and the figure that came out of it was quoted before it was
+    checked.
+    """
     out: list[list[int]] = []
     i = 0
     while i < len(xs):
         block = xs[i:i + d]
-        c.cells += len(block)
+        c.cells += 2 * len(block)      # take d, then drop d
         out.append(block)
         i += d
     return out
@@ -214,6 +222,28 @@ def main() -> int:
           f"leaders' figure")
     print(f"  implies theirs is close to zero, so this is where the remaining")
     print(f"  distance to the plateau sits.")
+
+    # The 689-unit rate used above rests on one assumption about the leaders:
+    # that they perform 2,074 operations and nothing else material. If their
+    # bookkeeping is anything like ours, the true rate is far lower and every
+    # absolute figure here moves with it. A RATIO against a design whose score
+    # we are about to learn does not move, which is why it is printed too.
+    #
+    # Submission 713 is the sum-over-multiplicities list design, which bitcost.py
+    # counts at 137,678 elementary steps in this same convention: one unit per
+    # cons cell walked or built, one per addition. When 713 is scored, dividing
+    # its figure by this ratio predicts the two-term design directly, with no
+    # assumption about the leaders at all.
+    LIST_SUM_FORM_STEPS = 137_678
+    ratio = LIST_SUM_FORM_STEPS / grand
+    print()
+    print(f"  calibration that needs no assumption about the leaders")
+    print(f"    sum-form list design (submission 713) {LIST_SUM_FORM_STEPS:>10,} steps")
+    print(f"    two-term design (this file)           {grand:>10,} steps")
+    print(f"    two-term should score 1/{ratio:.1f} of whatever 713 scores")
+    for label, guess in (("if 713 scores  95,000,000", 95_000_000),
+                         ("if 713 scores 132,000,000", 132_000_000)):
+        print(f"      {label}  ->  about {guess / ratio:>12,.0f}")
     return 0
 
 
