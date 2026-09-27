@@ -84,26 +84,21 @@ theorem foldl_pairs_eq (width : Nat) (rows : List (List Nat))
       have hnone : cellOf row j = none := by
         rw [cellOf, if_pos hz]
       rw [List.filterMap_cons_none hnone, List.foldl_cons]
-      have hskip : (if row.getD j 0 = 0 || used.testBit j then acc
-          else acc + row.getD j 0
-            * permanentRows width rows (used ||| (1 <<< j))) = acc := by
+      -- rewrite the condition itself rather than the whole `if`: the guard is
+      -- a Bool, so the branch is `cond = true`, and `simp` on the entry alone
+      -- does not carry through that coercion
+      have hcond : (row.getD j 0 = 0 || used.testBit j) = true := by
         simp [hz]
-      rw [hskip]
+      rw [hcond, if_true]
       exact ih acc
     · have hsome : cellOf row j = some (j, row.getD j 0) := by
         rw [cellOf, if_neg hz]
       rw [List.filterMap_cons_some hsome, List.foldl_cons, List.foldl_cons]
-      -- with a non-zero entry the two accumulator steps are the same term
-      have hstep :
-          (if used.testBit j then acc
-            else acc + row.getD j 0
-              * permanentFast width rowsP (used ||| (1 <<< j)))
-          = (if row.getD j 0 = 0 || used.testBit j then acc
-            else acc + row.getD j 0
-              * permanentRows width rows (used ||| (1 <<< j))) := by
-        rw [hrec]
+      -- with a non-zero entry the guard collapses to the mask test, and the
+      -- two accumulator steps are then the same term
+      have hcond : (row.getD j 0 = 0 || used.testBit j) = used.testBit j := by
         simp [hz]
-      rw [hstep]
+      rw [hcond, hrec]
       exact ih _
 
 theorem permanentFast_eq (width : Nat) :
