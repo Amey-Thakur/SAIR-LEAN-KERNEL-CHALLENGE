@@ -36,12 +36,18 @@ jobs:
       matrix:
         include:
           # sizes are the judged group boundaries from rules/problems/<name>.md
+          # permanent and sha256 pack the difficulty axis into the HIGH bits:
+          # n >>> 32 is the dimension / chain-step count and n &&& 0xffffffff
+          # is the seed. A first pass of this survey passed raw 6, 12, 16 and
+          # 4, 32, 512, which decode to dimension 0 and zero chain steps, and
+          # reported all three problems as reducing in 0.26s. They were
+          # measuring the empty case.
           - problem: permanent
-            sizes: "6,12,16"
+            sizes: "25769803777,51539607553,68719476737"
           - problem: polydisc
             sizes: "262144,137438953472,9223372036854775807"
           - problem: sha256
-            sizes: "4,32,512"
+            sizes: "17179869185,137438953473,2199023255553"
           - problem: mertens
             sizes: "25,50,150,300,500"
     steps:
