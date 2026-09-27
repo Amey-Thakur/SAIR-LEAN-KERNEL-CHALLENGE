@@ -1,0 +1,113 @@
+name: starter survey
+
+## Asks one question of the four problems that have no measurement yet: can
+## the kernel reduce the shipped starter at the judged sizes at all?
+##
+## It is worth asking separately from "is it fast". The primecount starter
+## reduces n = 0, 1, 2 and nothing above, because Nat.minFac is well-founded
+## recursion; every judged case for it is n >= 50, so it scores zero and no
+## tuning would have changed that. The fib starter, measured identically,
+## reduces every case in a fraction of a second. Nothing on the outside of
+## either one distinguishes them.
+##
+## Authors: Amey Thakur (https://github.com/Amey-Thakur)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stage2/survey.py"
+      - ".github/workflows/survey.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_SHA: 940f0a2ead23ef70ab1387edabb347e629111edd
+
+jobs:
+  survey:
+    name: ${{ matrix.problem }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # sizes are the judged group boundaries from rules/problems/<name>.md
+          - problem: permanent
+            sizes: "6,12,16"
+          - problem: polydisc
+            sizes: "262144,137438953472,9223372036854775807"
+          - problem: sha256
+            sizes: "4,32,512"
+          - problem: mertens
+            sizes: "25,50,150,300,500"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare dependencies, where the package has any
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          if [ -f setup.py ]; then python setup.py; fi
+
+      - name: Build the shipped starter
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: lake build
+
+      - name: Can the kernel reduce it at the judged sizes?
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          python ../../../stage2/survey.py \
+            --problem ${{ matrix.problem }} \
+            --sizes "${{ matrix.sizes }}" \
+            --timeout 120 \
+            --out ../../../survey.json
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.problem }}"
+            if [ -f survey.json ]; then
+              python - <<'EOF'
+          import json, pathlib
+          d = json.loads(pathlib.Path("survey.json").read_text())
+          print(f"**{d['verdict']}**")
+          print()
+          print("| n | kernel | note |")
+          print("|---:|---:|---|")
+          for r in d["rows"]:
+              t = f"{r['seconds']:.2f}s" if r.get("seconds") is not None else "**fails**"
+              note = "" if r.get("status") == "ok" else str(r.get("status",""))[:90].replace("|","\\|").replace("\n"," ")
+              print(f"| {r['n']} | {t} | {note} |")
+          EOF
+            else
+              echo "(no survey output)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: survey-${{ matrix.problem }}
+          path: survey.json
+          if-no-files-found: warn
