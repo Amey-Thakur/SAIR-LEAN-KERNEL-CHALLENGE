@@ -400,7 +400,6 @@ theorem entry_lt (n k m : Nat) (hk : k ≤ n) (hm : m ≤ n) :
 
 /-! ## The table -/
 
-/-- Rows `0` through `k`, each held as one number of `n+1` fields. -/
 /-- The row modulus, named so it is built once rather than rebuilt per row.
 
 The leaderboard is what prompted this. The entry below was ranked on total
