@@ -90,7 +90,8 @@ jobs:
 
       # A candidate is optional: until one exists the run measures the shipped
       # code, which is the point. When one does exist it must build, rest on
-      # permitted axioms, and reduce the same judged sizes.
+      # permitted axioms, and reduce the same judged sizes, so the comparison
+      # is against the starter on the same runner in the same job.
       - name: Build and time a candidate, if there is one
         id: candidate
         continue-on-error: true
@@ -104,9 +105,8 @@ jobs:
           cp "$src" Submission.lean
           set -o pipefail
           lake build 2>&1 | tee ../../../candidate-build.log
-          printf 'import Submission
-#print axioms Submission.impl_correct
-' > Axioms.lean
+          printf 'import Submission\n' > Axioms.lean
+          printf '#print axioms Submission.impl_correct\n' >> Axioms.lean
           lake env lean Axioms.lean 2>&1 | tee ../../../axioms.txt
           if grep -qiE "unknown|error" ../../../axioms.txt; then
             echo "impl_correct missing or errored"; exit 1
@@ -114,7 +114,11 @@ jobs:
           if grep -qiE "sorryAx|native" ../../../axioms.txt; then
             echo "FORBIDDEN AXIOM"; exit 1
           fi
-          python ../../../stage2/survey.py             --problem ${{ matrix.problem }}             --sizes "${{ matrix.sizes }}"             --timeout 180             --out ../../../candidate-survey.json
+          python ../../../stage2/survey.py \
+            --problem ${{ matrix.problem }} \
+            --sizes "${{ matrix.sizes }}" \
+            --timeout 180 \
+            --out ../../../candidate-survey.json
 
       - name: Report
         if: always()
