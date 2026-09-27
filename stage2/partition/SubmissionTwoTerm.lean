@@ -54,7 +54,7 @@ written for a design that turns out not to compute what it should is wasted, and
 because the operation count is what decides whether the proof is worth writing.
 -/
 
-namespace TwoTerm
+namespace Submission
 
 /-- Elementwise sum. Where the second list runs out the first passes through
 unchanged, which is what makes block 0 need no special case: its previous block
@@ -517,7 +517,7 @@ theorem impl_correct : ∀ (n : Nat), impl n = partitionSpec n := by
   show nth (rowsL n n) n = partAux n n
   exact rowsL_correct n n n (by omega)
 
-end TwoTerm
+end Submission
 
 -- The judged sizes reduce in far less than a second, so these are cheap, but
 -- the elaborator's default recursion limit is well below what reducing them
@@ -534,33 +534,33 @@ matter more than the judged ones here: a design that agrees at the six endpoints
 and disagrees at n = 7 would be accepted by the judge and rejected by the proof,
 and that is the failure this catches early. The values are the specification's,
 recomputed independently in Python by `twoterm.py`. -/
-example : TwoTerm.impl 0 = 1 := by rfl
-example : TwoTerm.impl 1 = 1 := by rfl
-example : TwoTerm.impl 2 = 2 := by rfl
-example : TwoTerm.impl 3 = 3 := by rfl
-example : TwoTerm.impl 4 = 5 := by rfl
-example : TwoTerm.impl 5 = 7 := by rfl
-example : TwoTerm.impl 6 = 11 := by rfl
-example : TwoTerm.impl 7 = 15 := by rfl
-example : TwoTerm.impl 8 = 22 := by rfl
-example : TwoTerm.impl 9 = 30 := by rfl
-example : TwoTerm.impl 10 = 42 := by rfl
-example : TwoTerm.impl 11 = 56 := by rfl
-example : TwoTerm.impl 12 = 77 := by rfl
-example : TwoTerm.impl 13 = 101 := by rfl
-example : TwoTerm.impl 14 = 135 := by rfl
-example : TwoTerm.impl 15 = 176 := by rfl
-example : TwoTerm.impl 16 = 231 := by rfl
-example : TwoTerm.impl 17 = 297 := by rfl
-example : TwoTerm.impl 18 = 385 := by rfl
-example : TwoTerm.impl 19 = 490 := by rfl
-example : TwoTerm.impl 20 = 627 := by rfl
+example : Submission.impl 0 = 1 := by rfl
+example : Submission.impl 1 = 1 := by rfl
+example : Submission.impl 2 = 2 := by rfl
+example : Submission.impl 3 = 3 := by rfl
+example : Submission.impl 4 = 5 := by rfl
+example : Submission.impl 5 = 7 := by rfl
+example : Submission.impl 6 = 11 := by rfl
+example : Submission.impl 7 = 15 := by rfl
+example : Submission.impl 8 = 22 := by rfl
+example : Submission.impl 9 = 30 := by rfl
+example : Submission.impl 10 = 42 := by rfl
+example : Submission.impl 11 = 56 := by rfl
+example : Submission.impl 12 = 77 := by rfl
+example : Submission.impl 13 = 101 := by rfl
+example : Submission.impl 14 = 135 := by rfl
+example : Submission.impl 15 = 176 := by rfl
+example : Submission.impl 16 = 231 := by rfl
+example : Submission.impl 17 = 297 := by rfl
+example : Submission.impl 18 = 385 := by rfl
+example : Submission.impl 19 = 490 := by rfl
+example : Submission.impl 20 = 627 := by rfl
 
 -- the six judged sizes
-example : TwoTerm.impl 22 = 1002 := by rfl
-example : TwoTerm.impl 26 = 2436 := by rfl
-example : TwoTerm.impl 32 = 8349 := by rfl
-example : TwoTerm.impl 36 = 17977 := by rfl
+example : Submission.impl 22 = 1002 := by rfl
+example : Submission.impl 26 = 2436 := by rfl
+example : Submission.impl 32 = 8349 := by rfl
+example : Submission.impl 36 = 17977 := by rfl
 
 /-! ## The shape the correctness proof will take
 
