@@ -58,6 +58,18 @@ jobs:
           sh elan-init.sh -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
+      - name: Probe which lemmas exist
+        continue-on-error: true
+        working-directory: upstream/problems/partition
+        run: |
+          lake build Spec || true
+          cp ../../../stage2/partition/SubmissionPacked.lean Submission.lean
+          lake build || true
+          cp ../../../stage2/partition/Probe.lean .
+          lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          echo '--- unresolved ---'
+          grep -E '[Uu]nknown (constant|identifier)|error' ../../../probe.log || echo '(clean)'
+
       # The baseline first, so that a runner having a bad day shows up as both
       # numbers moving rather than as an apparent win.
       - name: Measure the upstream worked example

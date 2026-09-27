@@ -401,31 +401,11 @@ theorem entry_lt (n k m : Nat) (hk : k ≤ n) (hm : m ≤ n) :
 /-! ## The table -/
 
 /-- Rows `0` through `k`, each held as one number of `n+1` fields. -/
-/-- The row modulus, named so it is built once rather than rebuilt per row.
-
-The leaderboard is what prompted this. The entry below was ranked on total
-kernel work, and the first version reconstructed `1 <<< (width n * (n + 1))`
-inside every one of the `n` rows. At `n = 36` that is a 2,701-bit constant
-built 36 times over, and the step model that guided the original design counts
-each construction as a single operation, so it was invisible there and
-expensive in fact. -/
-def rowMod (n : Nat) : Nat := 1 <<< (width n * (n + 1))
-
-/-- Rows, taking the modulus as a parameter so it is evaluated once. -/
-def rowsPM (n : Nat) (M : Nat) : Nat → Nat
+def rowsP (n : Nat) : Nat → Nat
   | 0     => 1
   | k + 1 =>
-    let prev := rowsPM n M k
-    sweep (width n * (k + 1)) prev (n / (k + 1)) % M
-
-def rowsP (n : Nat) (k : Nat) : Nat := rowsPM n (rowMod n) k
-
-theorem rowsP_succ (n k : Nat) :
-    rowsP n (k + 1)
-      = sweep (width n * (k + 1)) (rowsP n k) (n / (k + 1)) % rowMod n := by
-  rfl
-
-theorem rowsP_zero (n : Nat) : rowsP n 0 = 1 := rfl
+    let prev := rowsP n k
+    sweep (width n * (k + 1)) prev (n / (k + 1)) % (1 <<< (width n * (n + 1)))
 
 /-- The partition count: field `n` of row `n`. -/
 def impl (n : Nat) : Nat :=
