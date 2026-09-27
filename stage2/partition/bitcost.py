@@ -17,33 +17,37 @@
 #   linear. Counting Nat operations hides that completely, which is the exact
 #   blind spot Section 6.3 of the paper describes for field width, one scale up.
 #
-#   REFUTED BY MEASUREMENT, 27 Sep 2026. Keep this file as a record of a wrong
-#   turn, not as a model to reason from. Two of its conclusions are false:
+#   STATUS, corrected twice on 27 Sep 2026. Read stage2/partition/MODELS.md
+#   before trusting any cost model for this problem, including this one.
 #
-#     1. It concluded the list design should beat the packed design by about 3x
-#        on the judge's metric. Timed in one CI job at the six judged sizes, the
-#        list design takes 3.63 s and the packed design 0.07 s. The packed
-#        design wins by 52x. A submission was made on the strength of this file
-#        and immediately superseded.
+#   First this file was annotated as refuted, because wall clock contradicted it:
+#   timed in one CI job at the six judged sizes the list design takes 3.63 s and
+#   the packed design 0.07 s, so packed wins 52x where this model said list
+#   should win. That annotation was itself wrong, and the error was the
+#   instrument. `stage2/widthcost.py` then held the reduction-step count fixed at
+#   20,000 and varied only operand width: 20,301 bits costs 1.1x what 1 bit
+#   costs. Width is free in real time, because GMP makes a 43-word operation
+#   about as fast as a 1-word one, so wall clock can never see the quantity this
+#   file charges for.
 #
-#     2. It put 78% of the packed cost in the reduction and predicted a 3.9x
-#        saving from replacing the modulus with a mask. `stage2/primitives.py`
-#        then timed each primitive alone: shiftLeft, shiftRight, add, mul and
-#        mod all cost bare process startup at 2,701 bits and still cost bare
-#        process startup at 43,216 bits, sixteen times the row width. The
-#        reduction is free. So is everything else here that is charged by
-#        operand size.
+#   The ranked metric can. Calibrated against the leaders -- the two-term
+#   peeling identity needs 2,074 additions across the six judged sizes and rank 1
+#   is at 1,429,499, so 689 units per small-number operation -- this model's
+#   count for the packed design predicts
 #
-#   Why it was wrong. It charged one walked cons cell and one 64-bit word
-#   operation at one unit each. A kernel `Nat` operation on a 43-word number is
-#   one accelerated call; walking m cons cells is m kernel reduction steps, each
-#   allocating and matching. The model undercharged the list side by about two
-#   orders of magnitude. The lesson is the one the paper already makes about
-#   field width, one scale up: a cost model is a hypothesis, and this repository
-#   can measure instead of guessing.
+#       168,692 word operations x 689 = 116,000,000   predicted
+#                                       132,036,341   measured on the board
 #
-#   What replaced it: `stage2/primitives.py` for what a primitive costs, and
-#   `stage2/partition/timealt.py` for what a design costs. Both measure.
+#   within 14%. So this model does predict the judge, and the claim it makes
+#   about the reduction being most of the cost stands on the metric that is
+#   ranked. It is wall clock that this model does not predict, and it was never
+#   trying to.
+#
+#   What remains true from the first annotation: submission 713 was made on this
+#   model before either instrument had been checked, which was premature. It was
+#   superseded by 716 in the same minute on the strength of wall clock, which was
+#   the wrong instrument. 713's score, when the board rescores, is the direct
+#   test of the calibration above.
 #
 # Usage: py stage2/partition/bitcost.py
 # Author: Amey Thakur
