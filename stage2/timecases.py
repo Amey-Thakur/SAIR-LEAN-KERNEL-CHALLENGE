@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+# ==============================================================================
+# File: timecases.py
+# Description: Times the Lean kernel reducing `impl n` to its expected literal,
+#   one judged size at a time, inside whatever problem package it is run from.
+#
+#   Each case is its own file and its own invocation. Putting them in one file
+#   would let elaboration of a later case overlap the earlier ones and would
+#   report a single number that hides which size is expensive, and the whole
+#   point is to find where the cost is.
+#
+#   A case that fails to reduce is recorded rather than swallowed. `None` here
+#   means the kernel could not produce the literal within the timeout, which is
+#   a result about the candidate, not a gap in the measurement.
+#
+# Usage: py timecases.py --cases cases.json [--label starter] [--out t.json]
+#          [--timeout 300]
+# Author: Amey Thakur
+# License: CC BY 4.0
+# ==============================================================================
+
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def time_one(n: int, value: int, timeout: float) -> tuple[float | None, str]:
+    """Return (seconds, status) for the kernel reducing `impl n` to `value`."""
+    # The import must come first, so maxRecDepth is attached to the theorem
+    # with `in` rather than set at the top of the file. Reducing a large
+    # numeral goes deeper than the elaborator's default limit; that is a limit
+    # on checking the answer, not on computing it.
+    src = ("import Submission\n"
+           "set_option maxRecDepth 100000 in\n"
+           f"theorem bench : Submission.impl {n} = {value} := by rfl\n")
+    with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=".",
+                                     delete=False, encoding="utf-8") as fh:
+        fh.write(src)
+        path = pathlib.Path(fh.name)
+    try:
+        t0 = time.monotonic()
+        proc = subprocess.run(["lake", "env", "lean", path.name],
+                              capture_output=True, text=True, timeout=timeout)
+        dt = time.monotonic() - t0
+        if proc.returncode == 0:
+            return dt, "ok"
+        head = (proc.stdout + proc.stderr).strip().splitlines()
+        return None, (head[0][:120] if head else f"exit {proc.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, f"timeout after {timeout:.0f}s"
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cases", required=True)
+    ap.add_argument("--label", default="run")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--timeout", type=float, default=300.0)
+    args = ap.parse_args()
+
+    data = json.loads(pathlib.Path(args.cases).read_text(encoding="utf-8"))
+    rows, total, failed = [], 0.0, 0
+    print(f"  {args.label}: {len(data['cases'])} cases, "
+          f"{args.timeout:.0f}s each")
+    for c in data["cases"]:
+        dt, status = time_one(c["n"], c["value"], args.timeout)
+        rows.append({"n": c["n"], "seconds": dt, "status": status})
+        if dt is None:
+            failed += 1
+            print(f"    n={c['n']:<8} FAILED   {status}")
+        else:
+            total += dt
+            print(f"    n={c['n']:<8} {dt:7.2f}s")
+
+    print(f"  {len(rows) - failed} of {len(rows)} reduced, "
+          f"{total:.2f}s total over those that did")
+    out = {"label": args.label, "problem": data.get("problem"),
+           "rows": rows, "total_seconds": round(total, 2),
+           "reduced": len(rows) - failed, "cases": len(rows)}
+    if args.out:
+        pathlib.Path(args.out).write_text(json.dumps(out, indent=2) + "\n",
+                                          encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,140 @@
+name: fib and primecount
+
+## Both problems import Mathlib, so a run here is slower than the core-only
+## ones and the package's own setup.py fetches the pinned dependency cache.
+##
+## The first thing this measures is the starter, not a candidate. Mathlib's
+## Nat.fastFib is already fast doubling, and the primecount starter already
+## carries a correct proof, so whether either needs replacing is a question
+## with an answer rather than an assumption. A candidate is only built when one
+## exists; until then the run reports what the shipped code costs.
+##
+## Authors: Amey Thakur (https://github.com/Amey-Thakur)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stage2/fib/**"
+      - "stage2/primecount/**"
+      - "stage2/cases.py"
+      - ".github/workflows/mathlib-problems.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_SHA: 940f0a2ead23ef70ab1387edabb347e629111edd
+
+jobs:
+  measure:
+    name: ${{ matrix.problem }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        problem: [fib, primecount]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Expected answers, computed by a method unlike the submission's
+        run: python stage2/cases.py --problem ${{ matrix.problem }}
+
+      - name: Prepare the pinned Mathlib dependencies
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: python setup.py
+
+      # The baseline is whatever the challenge ships. Everything a candidate
+      # claims is measured against this number on this runner, so a slow runner
+      # shows up in both rather than as an apparent win.
+      - name: Build the starter
+        id: starter
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tee ../../../starter-build.log
+
+      - name: Time the kernel reducing the starter at the judged sizes
+        if: steps.starter.outcome == 'success'
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          python ../../../stage2/timecases.py \
+            --cases ../../../stage2/${{ matrix.problem }}/cases.json \
+            --label starter --out ../../../starter-times.json
+
+      # A candidate is optional: until one is written the run is a measurement
+      # of the shipped code, which is the point.
+      - name: Build and time the candidate, if there is one
+        id: candidate
+        continue-on-error: true
+        working-directory: upstream/problems/${{ matrix.problem }}
+        run: |
+          src=../../../stage2/${{ matrix.problem }}/Submission.lean
+          if [ ! -f "$src" ]; then
+            echo "no candidate for ${{ matrix.problem }} yet"; exit 0
+          fi
+          if diff -q "$src" Submission.lean >/dev/null 2>&1; then
+            echo "candidate is byte-identical to the starter; nothing to compare"
+            exit 0
+          fi
+          cp "$src" Submission.lean
+          set -o pipefail
+          lake build 2>&1 | tee ../../../candidate-build.log
+          printf 'import Submission\n#print axioms Submission.impl_correct\n' > Axioms.lean
+          lake env lean Axioms.lean 2>&1 | tee ../../../axioms.txt
+          if grep -qiE "unknown|error" ../../../axioms.txt; then
+            echo "impl_correct missing or errored"; exit 1
+          fi
+          if grep -qiE "sorryAx|native" ../../../axioms.txt; then
+            echo "FORBIDDEN AXIOM"; exit 1
+          fi
+          python ../../../stage2/timecases.py \
+            --cases ../../../stage2/${{ matrix.problem }}/cases.json \
+            --label candidate --out ../../../candidate-times.json
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.problem }}"
+            python stage2/report_times.py starter-times.json candidate-times.json 2>/dev/null \
+              || echo "(no timings)"
+            if [ -f axioms.txt ]; then echo ''; echo "axioms:"; cat axioms.txt; fi
+            for f in starter-build.log candidate-build.log; do
+              if [ -f "$f" ] && grep -qE "^error" "$f"; then
+                echo ''; echo "$f errors:"; echo '```'
+                grep -E "^error" "$f" | head -20; echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.problem }}-logs
+          path: |
+            starter-build.log
+            candidate-build.log
+            starter-times.json
+            candidate-times.json
+            axioms.txt
+          if-no-files-found: warn
