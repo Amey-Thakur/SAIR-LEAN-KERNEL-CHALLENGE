@@ -17,6 +17,34 @@
 #   linear. Counting Nat operations hides that completely, which is the exact
 #   blind spot Section 6.3 of the paper describes for field width, one scale up.
 #
+#   REFUTED BY MEASUREMENT, 27 Sep 2026. Keep this file as a record of a wrong
+#   turn, not as a model to reason from. Two of its conclusions are false:
+#
+#     1. It concluded the list design should beat the packed design by about 3x
+#        on the judge's metric. Timed in one CI job at the six judged sizes, the
+#        list design takes 3.63 s and the packed design 0.07 s. The packed
+#        design wins by 52x. A submission was made on the strength of this file
+#        and immediately superseded.
+#
+#     2. It put 78% of the packed cost in the reduction and predicted a 3.9x
+#        saving from replacing the modulus with a mask. `stage2/primitives.py`
+#        then timed each primitive alone: shiftLeft, shiftRight, add, mul and
+#        mod all cost bare process startup at 2,701 bits and still cost bare
+#        process startup at 43,216 bits, sixteen times the row width. The
+#        reduction is free. So is everything else here that is charged by
+#        operand size.
+#
+#   Why it was wrong. It charged one walked cons cell and one 64-bit word
+#   operation at one unit each. A kernel `Nat` operation on a 43-word number is
+#   one accelerated call; walking m cons cells is m kernel reduction steps, each
+#   allocating and matching. The model undercharged the list side by about two
+#   orders of magnitude. The lesson is the one the paper already makes about
+#   field width, one scale up: a cost model is a hypothesis, and this repository
+#   can measure instead of guessing.
+#
+#   What replaced it: `stage2/primitives.py` for what a primitive costs, and
+#   `stage2/partition/timealt.py` for what a design costs. Both measure.
+#
 # Usage: py stage2/partition/bitcost.py
 # Author: Amey Thakur
 # License: CC BY 4.0
