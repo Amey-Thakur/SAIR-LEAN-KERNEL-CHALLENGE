@@ -117,7 +117,6 @@ API comes with it for free. These are the names that route needs. -/
 #check @Nat.primeFactorsList
 #check @Nat.primeFactorsList_zero
 #check @Nat.primeFactorsList_one
-#check @Nat.primeFactorsList_succ_succ
 #check @Nat.prod_primeFactorsList
 #check @Nat.mem_primeFactorsList
 
@@ -131,3 +130,38 @@ API comes with it for free. These are the names that route needs. -/
 #check @Nat.squarefree_iff_nodup_primeFactorsList
 
 end RouteBDetail
+
+section Step2And3
+
+/- Step 2 needs to unfold `Nat.primeFactorsList`, which is well-founded
+recursion on `n / minFac n`. `Nat.primeFactorsList_succ_succ` does not exist in
+this toolchain, so these are the candidates for the same unfolding. -/
+
+example (k : Nat) :
+    Nat.primeFactorsList (k + 2)
+      = (k + 2).minFac :: Nat.primeFactorsList ((k + 2) / (k + 2).minFac) := by
+  rw [Nat.primeFactorsList]
+
+#check @Nat.primeFactorsList_zero
+#check @Nat.primeFactorsList_one
+#check @Nat.minFac_dvd
+#check @Nat.div_lt_self
+#check @Nat.minFac_le
+
+-- Step 3: what moebius becomes once a reducible factorisation exists.
+#check @ArithmeticFunction.moebius_apply_of_squarefree
+#check @ArithmeticFunction.moebius_eq_zero_of_not_squarefree
+#check @ArithmeticFunction.cardFactors_apply
+#check @Nat.squarefree_iff_nodup_primeFactorsList
+
+-- moebius at zero, which the sum starts from.
+example : (ArithmeticFunction.moebius 0 : Int) = 0 := by simp
+
+-- Nodup has to be decidable AND kernel-reducible, not merely decidable.
+example : ([2, 3] : List Nat).Nodup := by decide
+example : ¬ ([2, 2] : List Nat).Nodup := by decide
+
+-- And the summation step the final induction uses.
+#check @Finset.sum_range_succ
+
+end Step2And3
