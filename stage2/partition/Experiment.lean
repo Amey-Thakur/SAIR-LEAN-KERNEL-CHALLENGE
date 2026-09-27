@@ -77,6 +77,16 @@ def impl (n : Nat) : Nat :=
 
 end Alt
 
+-- Reducing `Alt.impl 36` goes deeper than the elaborator's default recursion
+-- limit, and the first run of this file failed on exactly that: `maximum
+-- recursion depth has been reached` at the n = 36 example. That is the
+-- elaborator giving up on checking the answer, not the kernel failing to
+-- compute it, and it is the same confusion this repository has already made
+-- three times. Both limits are lifted here so a failure below means what it
+-- says. `timecases.py` and `primitives.py` set the same two options.
+set_option maxRecDepth 8000000
+set_option maxHeartbeats 0
+
 /-- Agreement at small inputs, checked by the kernel. This is not a proof for
 every `n`; it is a guard against timing a variant that computes the wrong thing,
 which is the one way a speed-up here could be meaningless. -/
