@@ -99,3 +99,51 @@ wall clock appeared to refute it. The word model puts it near 95M, better than
 the 132M on the board. When the board rescores, 713's number is a direct test of
 the size-charging calibration above, at no cost. Nothing further should be built
 on that calibration until it reports.
+
+## The two-term design, built
+
+`TwoTerm.lean` computes the peeling identity instead of proving it and walking
+away. `SubmissionTwoTerm.lean` is the same file with the namespace renamed, so
+the judge sees `Submission.impl` and `Submission.impl_correct`.
+
+The formulation is simpler than it looks. One pass computes
+`out[m] = row[m] + out[m - d]`, which appears to need random access `d` positions
+back into the output. It needs neither an index walk nor a queue: cut the row into
+consecutive blocks of `d`, and position `m` at offset `r` in block `i` has
+`m - d` at the SAME offset `r` in block `i - 1`. So each block's output is the
+elementwise sum of that block with the previous block's output, which is a fold
+carrying one value.
+
+`impl_correct` is proved for every `n`, not only at the judged sizes. The proof is
+(a) the first block returns the row plus whatever block was handed in, (b) past
+the first block the pass peels one term, (c) a pass preserves the length; then
+strong induction on `m` gives the specification's sum, and `specSum_lt` and
+`specSum_ge` are reused verbatim from `SubmissionPacked.lean`, where `specSum` is
+definitionally the specification's own sum.
+
+### What it costs
+
+| design | elementary steps, six judged sizes |
+| --- | ---: |
+| sum over multiplicities, packed row | 168,692 word operations |
+| sum over multiplicities, list (submission 713) | 137,678 |
+| **two-term, list** | **18,820** |
+
+of which only 2,074 are additions: the bookkeeping is 8.1x the arithmetic, and
+that is where the remaining distance to the plateau sits. Fusing `take` and `drop`
+into the emit would save about a quarter of it, not the 7x the plateau needs, so
+the overhead is not what separates this from rank 1.
+
+### Two routes to the same prediction
+
+At the 689-unit rate derived from the leaders, 18,820 steps price at
+**12,966,980**. Independently, and with no assumption about the leaders at all,
+the two-term design is 7.3x fewer steps than the sum-form list design, so it
+should score 1/7.3 of whatever submission 713 scores -- about 13.0M if 713 comes
+in near 95M, about 18.0M if 713 comes in at 132M.
+
+Either way that is roughly 10x better than the 132,036,341 on the board, and lands
+between rank 8 (7,621,271) and rank 9 (20,512,781), so **rank 9**. An earlier
+count in `twoterm.py` said 10.1M and rank 8; it charged one unit for cutting a
+block where Lean pays two, once for `take d` and once for `drop d`, and understated
+the design by a third.
