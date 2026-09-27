@@ -118,6 +118,16 @@ jobs:
             --sizes 100,150,200,300 \
             --label packed-large --out packed-large.json
 
+      # Every arithmetic primitive measured free at sixteen times the row
+      # width, so the judged 132,036,341 is reduction steps, not arithmetic.
+      # The suspect is that the sweep names the previous row once in the source
+      # and J+1 times in the unfolding. This times a variant where it occurs
+      # exactly once, in the same job, at sizes a shared runner can resolve.
+      - name: Is the previous row reduced once, or once per sweep term
+        continue-on-error: true
+        run: |
+          python stage2/partition/timealt.py --pkg upstream/problems/partition             --sizes 100,150,200,300
+
       - name: Compare
         if: always()
         run: python stage2/compare.py baseline.json candidate.json packed.json
