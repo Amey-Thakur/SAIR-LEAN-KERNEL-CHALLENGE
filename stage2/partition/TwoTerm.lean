@@ -99,6 +99,146 @@ def nth : List Nat → Nat → Nat
 
 def impl (n : Nat) : Nat := nth (rowsL n n) n
 
+
+/-! ## The indexing lemmas the correctness proof rests on
+
+One correction worth recording, because the obvious form is wrong. The natural
+statement
+
+    nth (zipAdd xs ys) m = nth xs m + nth ys m
+
+is FALSE: `zipAdd [] ys = []`, so at `xs = []` the left side is 0 while the right
+side is `nth ys m`, which need not be. `zipAdd`'s first argument is the driver and
+its second is consulted only as far as the first reaches. The lemma needs the
+guard `m < xs.length`, which every use satisfies anyway, because the index is
+always inside the row.
+-/
+
+
+/-! ## Names this proof needs, compiled on their own -/
+section Inventory
+#check @List.length_take
+#check @List.length_drop
+#check @List.length_append
+#check @List.take_append_drop
+#check @List.length_replicate
+#check @Nat.min_def
+#check @Nat.not_lt
+#check @Nat.sub_lt_sub_right
+end Inventory
+
+/-! ## `nth` past the end is zero, which is what lets the guards stay loose -/
+
+theorem nth_nil (m : Nat) : nth [] m = 0 := by
+  cases m <;> rfl
+
+theorem nth_ge_length : ∀ (xs : List Nat) (m : Nat), xs.length ≤ m → nth xs m = 0 := by
+  intro xs
+  induction xs with
+  | nil => intro m _; exact nth_nil m
+  | cons x xs ih =>
+    intro m h
+    cases m with
+    | zero => exact absurd h (by simp)
+    | succ mp =>
+      show nth xs mp = 0
+      exact ih mp (by simpa using h)
+
+/-! ## `zipAdd` -/
+
+theorem zipAdd_length : ∀ (xs ys : List Nat), (zipAdd xs ys).length = xs.length := by
+  intro xs
+  induction xs with
+  | nil => intro ys; rfl
+  | cons x xs ih =>
+    intro ys
+    cases ys with
+    | nil => rfl
+    | cons y ys =>
+      show (zipAdd xs ys).length + 1 = xs.length + 1
+      rw [ih ys]
+
+/-- The guarded form. Unguarded it is false: see the note at the top. -/
+theorem nth_zipAdd : ∀ (xs ys : List Nat) (m : Nat), m < xs.length →
+    nth (zipAdd xs ys) m = nth xs m + nth ys m := by
+  intro xs
+  induction xs with
+  | nil => intro ys m h; exact absurd h (by simp)
+  | cons x xs ih =>
+    intro ys m h
+    cases ys with
+    | nil =>
+      -- `zipAdd (x :: xs) [] = x :: xs`, and the missing second operand is zero
+      show nth (x :: xs) m = nth (x :: xs) m + nth [] m
+      rw [nth_nil]
+    | cons y ys =>
+      cases m with
+      | zero => rfl
+      | succ mp =>
+        show nth (zipAdd xs ys) mp = nth xs mp + nth ys mp
+        exact ih ys mp (by simpa using h)
+
+/-! ## `nth` through an append, which is how a block is read out of the row -/
+
+theorem nth_append : ∀ (as bs : List Nat) (m : Nat),
+    nth (as ++ bs) m = if m < as.length then nth as m else nth bs (m - as.length) := by
+  intro as
+  induction as with
+  | nil =>
+    intro bs m
+    show nth bs m = if m < 0 then nth [] m else nth bs (m - 0)
+    rw [if_neg (by omega)]
+  | cons a as ih =>
+    intro bs m
+    cases m with
+    | zero =>
+      show a = if 0 < as.length + 1 then a else nth bs (0 - (as.length + 1))
+      rw [if_pos (by omega)]
+    | succ mp =>
+      show nth (as ++ bs) mp
+          = if mp + 1 < as.length + 1 then nth as mp
+            else nth bs (mp + 1 - (as.length + 1))
+      rw [ih bs mp]
+      by_cases hlt : mp < as.length
+      · rw [if_pos hlt, if_pos (by omega)]
+      · rw [if_neg hlt, if_neg (by omega)]
+        congr 1
+        omega
+
+/-! ## `nth` through `take` and `drop`, which is how the blocks are cut -/
+
+theorem nth_take : ∀ (xs : List Nat) (d m : Nat), m < d →
+    nth (xs.take d) m = nth xs m := by
+  intro xs
+  induction xs with
+  | nil => intro d m _; simp [nth_nil]
+  | cons x xs ih =>
+    intro d m h
+    cases d with
+    | zero => exact absurd h (by omega)
+    | succ dp =>
+      cases m with
+      | zero => rfl
+      | succ mp =>
+        show nth (xs.take dp) mp = nth xs mp
+        exact ih dp mp (by omega)
+
+theorem nth_drop : ∀ (xs : List Nat) (d m : Nat),
+    nth (xs.drop d) m = nth xs (d + m) := by
+  intro xs
+  induction xs with
+  | nil => intro d m; simp [nth_nil]
+  | cons x xs ih =>
+    intro d m
+    cases d with
+    | zero => rfl
+    | succ dp =>
+      show nth (xs.drop dp) m = nth (x :: xs) (dp + 1 + m)
+      rw [ih dp m]
+      show nth xs (dp + m) = nth (x :: xs) (dp + 1 + m)
+      have : dp + 1 + m = (dp + m) + 1 := by omega
+      rw [this]
+
 end TwoTerm
 
 -- The judged sizes reduce in far less than a second, so these are cheap, but
