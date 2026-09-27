@@ -18,6 +18,11 @@ on:
     paths:
       - "stage2/survey.py"
       - ".github/workflows/survey.yml"
+      # The candidates themselves. Leaving these out meant a pushed candidate
+      # triggered nothing and the workflow silently measured the previous one.
+      - "stage2/permanent/**"
+      - "stage2/polydisc/**"
+      - "stage2/sha256/**"
   workflow_dispatch:
 
 permissions:
