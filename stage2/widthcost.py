@@ -209,6 +209,59 @@ def main() -> int:
     print("                          and the leader is doing far fewer steps")
     print("  rising per-step cost -> the packed row pays for its own width and")
     print("                          the field width is the thing to cut")
+
+    # Is the per-step figure above a per-step figure at all?
+    #
+    # The width table came out flat at about 60 us per step, which is roughly
+    # 120,000 instructions for one structural recursion step. That is several
+    # hundred times what such a step should cost, and it matters because the
+    # whole diagnosis rests on it: the packed entry does about 720 steps, and
+    # 720 steps at 60 us is 0.043 s, close to the 0.07 s it measures. But at
+    # 120,000 instructions per step the leader's 1,429,499 units would buy
+    # twelve steps, which cannot compute p(36). One of the two readings is wrong.
+    #
+    # This tells them apart. If the time is linear in the number of steps, then
+    # 60 us really is the cost of a step in this harness, and the leader must be
+    # measured on something narrower than wall time -- the kernel's reduction
+    # alone, with elaboration and file overhead excluded. If it is superlinear,
+    # the figure is an artifact of recursion DEPTH rather than step count, this
+    # instrument does not measure what the name says, and the flat width table
+    # above has to be re-read in that light.
+    #
+    # Width is fixed at one machine word throughout, since the table above
+    # established that width does not matter.
+    print("\n  is that a per-step cost? time against the number of steps,")
+    print("  at a fixed width of 64 bits\n")
+    print(f"    {'steps':>8}{'raw':>9}{'net':>9}{'per step':>12}{'vs first':>10}")
+    ladder = [reps // 4, reps // 2, reps, reps * 2]
+    first_net = first_reps = None
+    for r in ladder:
+        if r < 100:
+            continue
+        expected = sim_add(64, r) % 2
+        expr = f"iterAdd (1 <<< 64) {r} % 2"
+        src = PRELUDE + f"theorem b : {expr} = {expected} := by rfl" + NL
+        dt, status = time_src(src, args.timeout)
+        if dt is None:
+            print(f"    {r:>8}   failed")
+            print(f"             {status}")
+            continue
+        net = dt - base
+        cell = f"    {r:>8}{dt:>8.2f}s{net:>8.2f}s{net / r * 1e6:>9.2f}us"
+        if first_net is None and net > 0.02:
+            first_net, first_reps = net, r
+        elif first_net is not None:
+            # A linear cost gives a ratio equal to the step ratio; a quadratic
+            # one gives its square. Both are printed so neither has to be
+            # inferred from the per-step column by eye.
+            step_ratio = r / first_reps
+            cell += f"{net / first_net:>9.1f}x"
+            cell += f"   (steps {step_ratio:.0f}x)"
+        print(cell)
+    print("\n    per step flat        -> 60 us is a real per-step cost, and the")
+    print("                            judge must count kernel reduction only")
+    print("    per step rising      -> the cost is in recursion depth, not steps,")
+    print("                            and this instrument is the wrong one")
     return 0
 
 
