@@ -147,6 +147,16 @@ jobs:
       # reduces every judged size to the specification's own answer. The proof
       # compiled in the step above, so what this adds is the axiom check and the
       # measurement.
+      # The two-term design is exponential in n and two candidate causes have
+      # been eliminated by measurement: the row appearing twice (real, worth
+      # 1.6x, not the cause) and the block being used twice (the kernel shares
+      # it, per stage2/sharing.py). This times the table one pass at a time so
+      # the third guess is not a guess.
+      - name: Localise the exponential, one pass at a time
+        continue-on-error: true
+        run: |
+          python stage2/partition/bisect.py --pkg upstream/problems/partition --n 16
+
       - name: Measure the two-term candidate
         continue-on-error: true
         run: |
@@ -155,11 +165,6 @@ jobs:
       # Where it is slow enough for a shared runner to resolve. The judged sizes
       # reduce in hundredths of a second, which is below runner resolution, so a
       # comparison there is noise.
-      - name: Measure the two-term candidate where it is large enough to time
-        continue-on-error: true
-        run: |
-          python stage2/bench.py --upstream upstream --problem partition --submission stage2/partition/SubmissionTwoTerm.lean --sizes 100,150,200,300 --label twoterm-large --out twoterm-large.json
-
       - name: Compare
         if: always()
         run: python stage2/compare.py baseline.json candidate.json packed.json
