@@ -81,8 +81,9 @@ def defs_of(path: pathlib.Path) -> str:
 
 
 def time_rfl(pkg: pathlib.Path, prelude: str, expr: str, value: int,
-             timeout: float) -> tuple[float | None, str]:
-    src = ("import Spec" + NL + prelude + NL
+             timeout: float, imports: str = "import Spec"
+             ) -> tuple[float | None, str]:
+    src = (imports + NL + prelude + NL
            + "set_option maxRecDepth 8000000 in" + NL
            + "set_option maxHeartbeats 0 in" + NL
            + f"theorem bench : {expr} = {value} := by rfl" + NL)
@@ -172,13 +173,14 @@ def main() -> int:
     # The imported side needs Submission.olean to exist and be current.
     subprocess.run(["lake", "build"], cwd=pkg, capture_output=True, text=True,
                    timeout=args.timeout)
-    ibase, _ = time_rfl(pkg, "", "1 + 1", 2, args.timeout)
+    ibase, _ = time_rfl(pkg, "", "1 + 1", 2, args.timeout, "import Submission")
     ibase = ibase if ibase is not None else 0.0
     for label, expr in forms:
         row = f"  {label:>22}"
         dt, status = time_rfl(pkg, prelude, expr, want, args.timeout)
         row += f"{max(0.0, dt - base):>10.2f}s" if dt is not None else f"{status[:10]:>11}"
-        dt2, status2 = time_rfl(pkg, "", expr, want, args.timeout)
+        dt2, status2 = time_rfl(pkg, "", expr, want, args.timeout,
+                                "import Submission")
         row += f"{max(0.0, dt2 - ibase):>10.2f}s" if dt2 is not None else f"{status2[:10]:>11}"
         print(row)
     print()
