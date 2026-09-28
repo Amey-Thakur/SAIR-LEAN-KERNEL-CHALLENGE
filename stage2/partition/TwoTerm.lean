@@ -72,13 +72,28 @@ here because each step drops `d` elements rather than one, and the repository ha
 already learned that reaching for well-founded recursion to express that is fatal
 -- the kernel does not unfold it, which is what makes two of this competition's
 shipped starters unreducible at every judged size. Structural recursion on an
-explicit fuel is the repair used throughout. -/
+explicit fuel is the repair used throughout.
+
+The match is on the fuel ALONE, with the list handled inside. Written with three
+patterns and a wildcard on the fuel,
+
+    | 0,        _,       _    => []
+    | _,        [],      _    => []
+    | fuel + 1, x :: xs, prev => ...
+
+the middle equation's wildcard can stop the equation compiler treating this as
+structural recursion on the fuel, and what it falls back to is well-founded
+recursion -- which the kernel does not unfold, and which is exactly what leaves
+two of this competition's shipped starters unreducible at every judged size. This
+shape leaves no doubt. -/
 def passAux (d : Nat) : Nat → List Nat → List Nat → List Nat
-  | 0,        _,       _    => []
-  | _,        [],      _    => []
-  | fuel + 1, x :: xs, prev =>
-      let blk := zipAdd ((x :: xs).take d) prev
-      blk ++ passAux d fuel ((x :: xs).drop d) blk
+  | 0,        _,  _    => []
+  | fuel + 1, xs, prev =>
+      match xs with
+      | []      => []
+      | y :: ys =>
+          let blk := zipAdd ((y :: ys).take d) prev
+          blk ++ passAux d fuel ((y :: ys).drop d) blk
 
 /-- One pass over the whole row.
 

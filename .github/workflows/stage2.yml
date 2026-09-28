@@ -152,6 +152,26 @@ jobs:
       # 1.6x, not the cause) and the block being used twice (the kernel shares
       # it, per stage2/sharing.py). This times the table one pass at a time so
       # the third guess is not a guess.
+      # Say outright how the recursion was compiled instead of inferring it
+      # from timings. If `passAux` came out as well-founded recursion the kernel
+      # cannot unfold it, which is this repository's central finding and would
+      # explain why the same reduction is fast inlined and slow through an olean.
+      - name: How is passAux actually compiled
+        continue-on-error: true
+        run: |
+          cp stage2/partition/SubmissionTwoTerm.lean upstream/problems/partition/Submission.lean
+          cd upstream/problems/partition
+          lake build
+          echo "import Submission" > Compiled.lean
+          echo "#print Submission.passAux" >> Compiled.lean
+          echo "#print Submission.rowsL" >> Compiled.lean
+          echo "#print Submission.pass" >> Compiled.lean
+          lake env lean Compiled.lean 2>&1 | tee /tmp/compiled.txt | head -40
+          echo "--- well-founded markers ---"
+          grep -coiE "WellFounded|wfRec|WF\.fix" /tmp/compiled.txt || echo 0
+          echo "--- structural markers ---"
+          grep -coiE "brecOn|Nat\.rec" /tmp/compiled.txt || echo 0
+
       - name: Localise the exponential, one pass at a time
         continue-on-error: true
         run: |
