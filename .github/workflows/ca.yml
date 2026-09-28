@@ -18,6 +18,7 @@ on:
       - "stage2/ca-rule110/**"
       - "stage2/primitives.py"
       - "stage2/widthcost.py"
+      - "stage2/sharing.py"
       - ".github/workflows/ca.yml"
   workflow_dispatch:
 
@@ -69,6 +70,16 @@ jobs:
         continue-on-error: true
         working-directory: upstream/problems/ca-rule110
         run: python ../../../stage2/widthcost.py
+
+      # Does the kernel evaluate a value once when it is used twice? The
+      # two-term partition design is exponential and the only value used twice
+      # in it is the block, but the packed design references its row parameter
+      # J+1 times per row and is not exponential. Those cannot both be explained
+      # by the same answer, so the forms are measured apart.
+      - name: Does the kernel share a value used twice
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: python ../../../stage2/sharing.py
 
       - name: Time one primitive at a time on a large operand
         continue-on-error: true
