@@ -552,40 +552,21 @@ end Submission
 set_option maxRecDepth 8000000
 set_option maxHeartbeats 0
 
-/-! ## Agreement with the specification, checked by the kernel
+/-! ## Agreement with the specification
+
+The kernel-checked agreement examples live in the repository's own copy of
+this file rather than here. They reduce `impl` at every n from 0 to 20 and at
+each judged size, which is worth having in CI and is not worth shipping: the
+entry this replaces carries none, and `computationTotal` is the ranked figure.
+The old text follows, for what those checks are
 
 Every n from 0 to 20 and then each of the six judged sizes. The small sizes
 matter more than the judged ones here: a design that agrees at the six endpoints
 and disagrees at n = 7 would be accepted by the judge and rejected by the proof,
 and that is the failure this catches early. The values are the specification's,
 recomputed independently in Python by `twoterm.py`. -/
-example : Submission.impl 0 = 1 := by rfl
-example : Submission.impl 1 = 1 := by rfl
-example : Submission.impl 2 = 2 := by rfl
-example : Submission.impl 3 = 3 := by rfl
-example : Submission.impl 4 = 5 := by rfl
-example : Submission.impl 5 = 7 := by rfl
-example : Submission.impl 6 = 11 := by rfl
-example : Submission.impl 7 = 15 := by rfl
-example : Submission.impl 8 = 22 := by rfl
-example : Submission.impl 9 = 30 := by rfl
-example : Submission.impl 10 = 42 := by rfl
-example : Submission.impl 11 = 56 := by rfl
-example : Submission.impl 12 = 77 := by rfl
-example : Submission.impl 13 = 101 := by rfl
-example : Submission.impl 14 = 135 := by rfl
-example : Submission.impl 15 = 176 := by rfl
-example : Submission.impl 16 = 231 := by rfl
-example : Submission.impl 17 = 297 := by rfl
-example : Submission.impl 18 = 385 := by rfl
-example : Submission.impl 19 = 490 := by rfl
-example : Submission.impl 20 = 627 := by rfl
 
 -- the six judged sizes
-example : Submission.impl 22 = 1002 := by rfl
-example : Submission.impl 26 = 2436 := by rfl
-example : Submission.impl 32 = 8349 := by rfl
-example : Submission.impl 36 = 17977 := by rfl
 
 /-! ## The shape the correctness proof will take
 
