@@ -188,6 +188,64 @@ def main() -> int:
     print("  a slow ROW    -> it is how `impl` unfolds, not the algorithm")
     print("  nothing slow  -> the design never was exponential, and bench.py")
     print("                   was timing something other than the reduction")
+
+    # Nothing above is slow, so bench.py is timing something else. The two
+    # harnesses write the proof differently, and that is the last difference
+    # left:
+    #
+    #   bench.py    theorem bench : Submission.impl n = want := rfl
+    #   this file   theorem bench : Submission.impl n = want := by rfl
+    #
+    # Term-mode `rfl` asks the ELABORATOR to solve `impl n =?= want` with its own
+    # defeq checker; `by rfl` routes the same obligation so the KERNEL does the
+    # reduction. Both end in a term the kernel checks, but the elaborator gets
+    # there its own way and can be far slower. bench.py also caps maxRecDepth at
+    # 1,000,000 where this file lifts it to 8,000,000.
+    #
+    # This matters well beyond the two-term design: if the spelling is what
+    # bench.py has been measuring, then every wall-clock comparison in this
+    # repository -- packed at 0.07 s, list at 3.63 s, the 52x between them -- is
+    # a measurement of elaborator defeq rather than of kernel work, and the judge
+    # measures kernel work.
+    print()
+    print("  the same reduction, two spellings, imported, judged sizes")
+    print("  (bench.py uses := rfl; every probe in this repo uses := by rfl)\n")
+    print(f"  {'n':>5}{':= rfl':>12}{':= by rfl':>12}{'ratio':>9}")
+    print("  " + "-" * 38)
+    for m in (14, 16, 18, 20, 22):
+        w = part_aux(m, m)
+        src_term = ("import Submission" + NL
+                    + "set_option maxRecDepth 8000000" + NL
+                    + "set_option maxHeartbeats 0" + NL
+                    + f"theorem bench : Submission.impl {m} = {w} := rfl" + NL)
+        src_tac = ("import Submission" + NL
+                   + "set_option maxRecDepth 8000000" + NL
+                   + "set_option maxHeartbeats 0" + NL
+                   + f"theorem bench : Submission.impl {m} = {w} := by rfl" + NL)
+        cells = f"  {m:>5}"
+        times = []
+        for src in (src_term, src_tac):
+            path = pkg / "Spell.lean"
+            path.write_text(src, encoding="utf-8")
+            try:
+                t0 = time.monotonic()
+                pr = subprocess.run(["lake", "env", "lean", "Spell.lean"], cwd=pkg,
+                                    capture_output=True, text=True, timeout=args.timeout)
+                dt = time.monotonic() - t0
+            except subprocess.TimeoutExpired:
+                dt = None
+            finally:
+                path.unlink(missing_ok=True)
+            ok = dt is not None and pr.returncode == 0
+            times.append(max(0.0, dt - ibase) if ok else None)
+            cells += f"{times[-1]:>11.2f}s" if ok else f"{'failed':>12}"
+        if times[0] and times[1] and times[1] > 0.01:
+            cells += f"{times[0] / times[1]:>8.1f}x"
+        print(cells)
+    print()
+    print("  ratio near 1  -> the spelling is not the cause and the slowness is real")
+    print("  ratio large   -> bench.py has been timing ELABORATOR defeq, not")
+    print("                   kernel reduction, for every design it has measured")
     return 0
 
 
