@@ -158,12 +158,30 @@ def _time_one(pkg, n, want, watchdog):
     left at their defaults they measure the cap rather than the algorithm.
     Raising them for every variant alike keeps the comparison fair.
     """
+    # `by rfl`, not `:= rfl`. Term-mode `rfl` asks the ELABORATOR to solve
+    # `impl n =?= want` with its own defeq checker; `by rfl` routes the same
+    # obligation so the KERNEL does the reduction. They are not close: the
+    # two-term candidate reduces `impl 16` in 0.08 s through the kernel and needs
+    # roughly 10 s through the elaborator, and past n = 18 the elaborator path
+    # does not finish at all. This script reported that as the candidate being
+    # exponential, which it is not.
+    #
+    # The judge measures kernel work -- its `computationTotal` is separate from
+    # the `correctnessWork` it charges for checking the proof -- so the kernel
+    # path is the one worth timing. Every measurement this script took before
+    # 28 Sep 2026 was of elaborator defeq, including the packed-versus-list
+    # comparison, so figures from earlier runs are not comparable with figures
+    # from later ones.
+    #
+    # maxRecDepth is raised to match every other probe in the repository. At
+    # 1,000,000 it was a fourth elaborator limit sitting inside a measurement
+    # that is supposed to be about the kernel.
     bench = pkg / "Bench.lean"
     bench.write_text(
         "import Submission\n"
-        "set_option maxRecDepth 1000000\n"
+        "set_option maxRecDepth 8000000\n"
         "set_option maxHeartbeats 0\n"
-        f"theorem bench : Submission.impl {n} = {want} := rfl\n",
+        f"theorem bench : Submission.impl {n} = {want} := by rfl\n",
         encoding="utf-8")
     try:
         proc, seconds = run(["lake", "env", "lean", "Bench.lean"], cwd=pkg,

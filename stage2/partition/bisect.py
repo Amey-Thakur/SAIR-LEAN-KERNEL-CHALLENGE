@@ -212,7 +212,10 @@ def main() -> int:
     print("  (bench.py uses := rfl; every probe in this repo uses := by rfl)\n")
     print(f"  {'n':>5}{':= rfl':>12}{':= by rfl':>12}{'ratio':>9}")
     print("  " + "-" * 38)
-    for m in (14, 16, 18, 20, 22):
+    # 20 and 22 are left out: the elaborator path does not finish at
+    # those sizes, and two 180 s timeouts per run buy nothing the three
+    # sizes below do not already show.
+    for m in (14, 16, 18):
         w = part_aux(m, m)
         src_term = ("import Submission" + NL
                     + "set_option maxRecDepth 8000000" + NL
