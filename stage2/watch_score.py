@@ -25,10 +25,25 @@
 #   Above 132M refutes that, leaves elapsed time as the better guide, and means
 #   the 92x gap is somewhere neither instrument has looked yet.
 #
+#   The cadence, learned the hard way. This board is NOT continuous. Its `meta`
+#   reports `configuredUpdateTimeUtc: "08:00"`, a `dataCutoffAt` of 00:00 UTC and
+#   a daily `batchId`, so it publishes once a day and a submission made after
+#   midnight UTC cannot appear until the following 08:00. An earlier version of
+#   this script polled every five minutes for eight hours, expired before the
+#   publish, and reported "no change" -- which was true and useless. Polling
+#   frequency was never the constraint. It now sleeps until just after the next
+#   publish and checks a handful of times around it.
+#
+#   One consequence worth knowing before submitting rather than after. The ranked
+#   row names a single `submissionId`, the latest before the cutoff, so two
+#   submissions on the same day are not two measurements: the second replaces the
+#   first and the first's figure is never published. Submission 713 was lost that
+#   way, superseded by 716 within a minute.
+#
 #   The key is read from the environment and never printed.
 #
 # Usage: py stage2/watch_score.py --problem partition --team LKC01-T00040
-#          [--known-submission 649] [--interval 300] [--max-polls 96]
+#          [--known-submission 716] [--at-utc 08:00] [--interval 600]
 # Author: Amey Thakur
 # License: CC BY 4.0
 # ==============================================================================
@@ -36,6 +51,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -82,10 +98,17 @@ def main() -> int:
     ap.add_argument("--known-submission", default=None,
                     help="the submission id currently on the board; the wait "
                          "ends when the row no longer shows it")
-    ap.add_argument("--interval", type=float, default=300.0,
-                    help="seconds between polls; this is a remote API, so it is "
-                         "deliberately not tight")
-    ap.add_argument("--max-polls", type=int, default=96)
+    ap.add_argument("--interval", type=float, default=600.0,
+                    help="seconds between polls AFTER the publish time; the "
+                         "board is daily, so this only covers a late publish")
+    ap.add_argument("--max-polls", type=int, default=12)
+    ap.add_argument("--at-utc", default="08:00",
+                    help="the board's publish time, from its own meta; the wait "
+                         "sleeps until just after this rather than polling "
+                         "through the night")
+    ap.add_argument("--margin", type=float, default=120.0,
+                    help="seconds to wait past the publish time before the "
+                         "first check")
     args = ap.parse_args()
 
     key = os.environ.get("SAIR_API_KEY")
@@ -104,8 +127,21 @@ def main() -> int:
         print(f"waiting: {describe(baseline_row, total)}")
     sys.stdout.flush()
 
+    # Sleep until just after the next publish rather than polling through it.
+    hh, mm = (int(v) for v in args.at_utc.split(":"))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    wait = (target - now).total_seconds() + args.margin
+    print(f"board publishes at {args.at_utc} UTC; next publish "
+          f"{target.isoformat()}, sleeping {wait / 3600:.1f} h")
+    sys.stdout.flush()
+    time.sleep(wait)
+
     for poll in range(args.max_polls):
-        time.sleep(args.interval)
+        if poll:
+            time.sleep(args.interval)
         try:
             row, total = our_row(args.problem, args.team, key)
         except (urllib.error.HTTPError, urllib.error.URLError, KeyError,
@@ -127,13 +163,13 @@ def main() -> int:
                 d = new / baseline_total
                 print(f"  was {baseline_total:,}, now {new:,}  ({d:.2f}x)")
                 # The two predictions this was waiting to decide between.
-                print(f"  operand-size model predicted about 95,000,000")
-                print(f"  elapsed time predicted worse than 132,036,341")
-                if new < 120_000_000:
-                    print("  -> operand size IS charged; make the numbers small")
+                print(f"  two-term design predicted about 12,966,980")
+                print(f"  the packed entry it replaces scored 131,460,833")
+                if new < 100_000_000:
+                    print("  -> the two-term design is an improvement; keep going")
                 else:
-                    print("  -> operand size is NOT the explanation; the gap is "
-                          "elsewhere")
+                    print("  -> worse than the packed entry; revert to 716 and "
+                          "re-examine the cost model")
             sys.stdout.flush()
             return 0
     print(f"no change after {args.max_polls} polls "
