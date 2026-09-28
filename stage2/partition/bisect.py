@@ -150,6 +150,42 @@ def main() -> int:
     print("                         pass and the pass is what to instrument")
     print("  ratios rising then")
     print("  falling             -> no exponential; the n-scaling is elsewhere")
+
+    # If every row above is instant, then `impl n`, which is DEFINITIONALLY
+    # `nth (rowsL n n) n`, should be instant too. bench.py measured it at 1.97 s
+    # for n = 14 and 30.28 s for n = 18. Both cannot be right about the same
+    # reduction, so the harnesses differ in something, and there are exactly two
+    # candidates: the spelling (`impl n` against `nth (rowsL n n) n`) and where
+    # the definitions come from (an olean built by lake, against inlined source).
+    #
+    # Four cells separate them. Whichever column or row is slow is the answer,
+    # and if none is slow then the design was never exponential and bench.py was
+    # measuring something other than the reduction.
+    print()
+    print(f"  the same reduction, four ways, at n = {n}")
+    print(f"  (bench.py reported impl 14 at 1.97s and impl 18 at 30.28s)\n")
+    want = part_aux(n, n)
+    forms = [("impl n", f"Submission.impl {n}"),
+             ("nth (rowsL n n) n", f"Submission.nth (Submission.rowsL {n} {n}) {n}")]
+    print(f"  {'form':>22}{'inlined':>11}{'imported':>11}")
+    print("  " + "-" * 44)
+    # The imported side needs Submission.olean to exist and be current.
+    subprocess.run(["lake", "build"], cwd=pkg, capture_output=True, text=True,
+                   timeout=args.timeout)
+    ibase, _ = time_rfl(pkg, "", "1 + 1", 2, args.timeout)
+    ibase = ibase if ibase is not None else 0.0
+    for label, expr in forms:
+        row = f"  {label:>22}"
+        dt, status = time_rfl(pkg, prelude, expr, want, args.timeout)
+        row += f"{max(0.0, dt - base):>10.2f}s" if dt is not None else f"{status[:10]:>11}"
+        dt2, status2 = time_rfl(pkg, "", expr, want, args.timeout)
+        row += f"{max(0.0, dt2 - ibase):>10.2f}s" if dt2 is not None else f"{status2[:10]:>11}"
+        print(row)
+    print()
+    print("  a slow COLUMN -> it is the olean, not the algorithm")
+    print("  a slow ROW    -> it is how `impl` unfolds, not the algorithm")
+    print("  nothing slow  -> the design never was exponential, and bench.py")
+    print("                   was timing something other than the reduction")
     return 0
 
 
