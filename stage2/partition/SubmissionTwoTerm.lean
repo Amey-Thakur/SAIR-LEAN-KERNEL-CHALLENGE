@@ -80,8 +80,6 @@ def passAux (d : Nat) : Nat → List Nat → List Nat → List Nat
       let blk := zipAdd ((x :: xs).take d) prev
       blk ++ passAux d fuel ((x :: xs).drop d) blk
 
-/-- One pass over the whole row. The fuel is the length, which is enough because
-`d` is at least one on every call, so every block consumes at least one element. -/
 /-- One pass over the whole row.
 
 The fuel is a parameter rather than `row.length`. Taking the length here would
