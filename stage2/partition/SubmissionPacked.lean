@@ -22,6 +22,35 @@ only thing between this representation and a wrong answer.
 
 Everything is self-contained, so each lemma is about the exact function the
 kernel reduces.
+
+Why this representation, settled by measurement rather than by argument.
+
+The obvious objection to packing is that it makes every operation act on a wide
+number: 2,701 bits at the largest judged input, roughly 43 machine words. A
+natural reading of the ranked metric is that it charges for that width, and on
+that reading the right design keeps every value a single partition count and
+accepts more operations in exchange. That reading was tested rather than
+assumed, by building the alternative and submitting it.
+
+The alternative was the two-term recurrence
+
+    partAux (k+1) m = partAux k m + partAux (k+1) (m - (k+1))
+
+computed on rows of small numbers, block by block so that nothing is indexed.
+It performs 2,074 additions across the six judged sizes against this design's
+roughly 1,600 operations, with every value one machine word instead of 43. It is
+proved for every n and reduces every judged size.
+
+It scored 3,396,012,941 against this design's 131,460,833: twenty-six times
+WORSE. Per operation that is about 180,000 units for the narrow design against
+about 82,000 for this one, so narrow operands cost MORE per operation, not less.
+
+So the ranked quantity follows the number of kernel reduction steps, and operand
+width is close to free -- which is what a controlled measurement had already
+said about elapsed time, holding the step count at 20,000 and varying only
+width: a 20,301-bit operand costs 1.1 times what a 1-bit operand costs. Packing
+a whole row into one number is right for this metric because it minimises steps,
+and the way to improve on it is to remove steps, not to narrow operands.
 -/
 import Spec
 
