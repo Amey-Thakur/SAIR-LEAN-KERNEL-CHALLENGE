@@ -5,45 +5,60 @@ different cost models in one day, each of which contradicted the others, and two
 of them produced a submission. The record is kept so the next attempt starts from
 what was measured rather than from whichever model was most recently believed.
 
-## THE ANSWER, 3 Oct 2026: the metric counts reduction STEPS
+## THE ANSWER, 3 Oct 2026: the metric charges by operation KIND
 
-Everything below that argues the ranked metric charges by operand size is WRONG,
-and was settled by submitting the design it implied.
+Settled by submitting the design the operand-size model implied and measuring it.
+Everything below that argues the ranked metric charges by operand size is WRONG.
 
-| design | operations | operand width | measured |
-| --- | ---: | ---: | ---: |
-| packed row (716) | ~1,600 | 43 words | **131,460,833** |
-| two-term, small numbers (796) | ~18,820 | 1 word | **3,396,012,941** |
+| design | steps | operand width | measured | units/step |
+| --- | ---: | ---: | ---: | ---: |
+| packed row (716) | 2,801 | 43 words | **131,460,833** | ~47,000 |
+| two-term, small numbers (796) | 18,820 | 1 word | **3,396,012,941** | ~180,000 |
 
-Twenty-six times worse. Per operation that is roughly 180,000 units for the
-narrow design against 82,000 for the wide one, so **narrow operands cost MORE
-per operation, not less**. The ranked quantity follows the number of kernel
-reduction steps and is close to blind to width -- which is exactly what
-`widthcost.py` had already measured for elapsed time, holding the step count at
-20,000 and varying only width, where a 20,301-bit operand cost 1.1 times a
-1-bit one. Elapsed time and the ranked metric agree after all. They were never
-in conflict.
+Twenty-six times worse, and a one-word list step costs nearly four times a
+43-word arithmetic step. **Narrow operands cost MORE per step.** What separates
+the designs is the kind of operation: traversing and rebuilding list cells is
+expensive, and arbitrary-precision arithmetic is cheap even when wide.
+
+**Do not read this as "the metric counts steps".** An earlier version of this
+header said that, and it is also wrong. Scored against the measured ratio of
+25.8:
+
+| proxy | predicted ratio | error |
+| --- | ---: | ---: |
+| uniform step count | 6.7 | 3.9x low |
+| wall time, kernel route | 16.3 | 1.6x low |
+
+**Wall time is the better proxy**, which is the reverse of what the width study
+suggests, and neither sizes the gap. Rank designs with the step count, size the
+difference with wall time, and trust neither to two significant figures.
 
 **Where the reasoning went wrong.** The argument against flat pricing was: the
-packed entry performs about 1,600 operations, so at the leaders' implied 689
-units per operation it would score about 1.1M and beat rank 1; it scores 119
-times that, therefore width must be charged. The conclusion does not follow from
-the premise -- the operation count was the weak link, not the pricing model, and
-a single ratio was used to rule out the simpler hypothesis. The simpler
-hypothesis was right.
+packed entry performs about 1,600 operations, so at 689 units each it would
+score 1.1M and beat rank 1; it scores 119 times that, therefore width is
+charged. Two faults. The operation count was wrong -- the paper's own model says
+2,801 across the six judged sizes, not 1,600 -- and a single ratio was used to
+rule out the simpler hypothesis. Neither extreme was right.
 
-**What this costs.** Submission 796 replaced a 131,460,833 entry with a
-3.4 billion one and dropped the standing from rank 15 to rank 24 of 31 over
-three days, because the board publishes once daily and takes only the latest
-submission before its 00:00 UTC cutoff. Submission 1103 restores the packed
+**Still untested: whether narrowing the field width buys anything.** No judged
+measurement of the two widths exists. Width is nearly free in elapsed time and
+cheap to the judge, but cheap is not free and nothing here measures it.
+
+**What this cost.** Submission 796 replaced a 131,460,833 entry with a 3.4
+billion one and dropped the standing from rank 15 to rank 24 of 31 over three
+days, because the board publishes once daily and ranks only the latest
+submission before its 00:00 UTC cutoff. Worse, the first attempt to revert
+resubmitted an unchanged file, which the idempotency guard answered with the
+EXISTING submission id and a `status submitted` that looked like success, so the
+bad entry stayed ranked two extra days. Submission 1103 restored the packed
 design.
 
-**The rule that follows.** Improve this entry by removing reduction STEPS. Do not
-narrow operands, do not replace the modulus with a mask, do not tighten the
-field width `2n+1` -- all three are width work and width is nearly free. The
-packed design performs about `n * H(n)` sweep unfoldings per size; a geometric
-multiplier built by doubling would make each row O(log) instead of O(n/d), which
-is roughly 1.7x fewer steps, and that is the direction worth proving.
+**The rule that follows.** Improve this entry by removing reduction steps,
+especially list steps. The packed design performs about `n * H(n)` sweep
+unfoldings per size; a geometric multiplier built by doubling would make each
+row O(log) instead of O(n/d), roughly 1.7x fewer steps. Proof cost is unranked
+and ours is a quarter of rank 1's, so there is room to spend proof effort buying
+steps back.
 
 ## The measurements, first
 
