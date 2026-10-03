@@ -5,6 +5,46 @@ different cost models in one day, each of which contradicted the others, and two
 of them produced a submission. The record is kept so the next attempt starts from
 what was measured rather than from whichever model was most recently believed.
 
+## THE ANSWER, 3 Oct 2026: the metric counts reduction STEPS
+
+Everything below that argues the ranked metric charges by operand size is WRONG,
+and was settled by submitting the design it implied.
+
+| design | operations | operand width | measured |
+| --- | ---: | ---: | ---: |
+| packed row (716) | ~1,600 | 43 words | **131,460,833** |
+| two-term, small numbers (796) | ~18,820 | 1 word | **3,396,012,941** |
+
+Twenty-six times worse. Per operation that is roughly 180,000 units for the
+narrow design against 82,000 for the wide one, so **narrow operands cost MORE
+per operation, not less**. The ranked quantity follows the number of kernel
+reduction steps and is close to blind to width -- which is exactly what
+`widthcost.py` had already measured for elapsed time, holding the step count at
+20,000 and varying only width, where a 20,301-bit operand cost 1.1 times a
+1-bit one. Elapsed time and the ranked metric agree after all. They were never
+in conflict.
+
+**Where the reasoning went wrong.** The argument against flat pricing was: the
+packed entry performs about 1,600 operations, so at the leaders' implied 689
+units per operation it would score about 1.1M and beat rank 1; it scores 119
+times that, therefore width must be charged. The conclusion does not follow from
+the premise -- the operation count was the weak link, not the pricing model, and
+a single ratio was used to rule out the simpler hypothesis. The simpler
+hypothesis was right.
+
+**What this costs.** Submission 796 replaced a 131,460,833 entry with a
+3.4 billion one and dropped the standing from rank 15 to rank 24 of 31 over
+three days, because the board publishes once daily and takes only the latest
+submission before its 00:00 UTC cutoff. Submission 1103 restores the packed
+design.
+
+**The rule that follows.** Improve this entry by removing reduction STEPS. Do not
+narrow operands, do not replace the modulus with a mask, do not tighten the
+field width `2n+1` -- all three are width work and width is nearly free. The
+packed design performs about `n * H(n)` sweep unfoldings per size; a geometric
+multiplier built by doubling would make each row O(log) instead of O(n/d), which
+is roughly 1.7x fewer steps, and that is the direction worth proving.
+
 ## The measurements, first
 
 Every number below was measured, in CI, in one job where a comparison is made.
@@ -134,7 +174,7 @@ that is where the remaining distance to the plateau sits. Fusing `take` and `dro
 into the emit would save about a quarter of it, not the 7x the plateau needs, so
 the overhead is not what separates this from rank 1.
 
-### Two routes to the same prediction
+### Two routes to the same prediction, both wrong
 
 At the 689-unit rate derived from the leaders, 18,820 steps price at
 **12,966,980**. Independently, and with no assumption about the leaders at all,
@@ -142,8 +182,11 @@ the two-term design is 7.3x fewer steps than the sum-form list design, so it
 should score 1/7.3 of whatever submission 713 scores -- about 13.0M if 713 comes
 in near 95M, about 18.0M if 713 comes in at 132M.
 
-Either way that is roughly 10x better than the 132,036,341 on the board, and lands
-between rank 8 (7,621,271) and rank 9 (20,512,781), so **rank 9**. An earlier
+Both routes predicted about 13M. The measured figure was 3,396,012,941, which is
+262 times the prediction and 26 times WORSE than the entry it replaced. Both
+routes shared the same false premise, that the metric charges by operand size,
+so agreeing with each other proved nothing. Two derivations of one assumption
+are not two pieces of evidence. An earlier
 count in `twoterm.py` said 10.1M and rank 8; it charged one unit for cutting a
 block where Lean pays two, once for `take d` and once for `drop d`, and understated
 the design by a third.

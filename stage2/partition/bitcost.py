@@ -17,37 +17,29 @@
 #   linear. Counting Nat operations hides that completely, which is the exact
 #   blind spot Section 6.3 of the paper describes for field width, one scale up.
 #
-#   STATUS, corrected twice on 27 Sep 2026. Read stage2/partition/MODELS.md
-#   before trusting any cost model for this problem, including this one.
+#   STATUS, FINAL: this model is wrong about the judge, and the matter was
+#   settled by submitting the design it implied. Read
+#   stage2/partition/MODELS.md before trusting any cost model for this problem.
 #
-#   First this file was annotated as refuted, because wall clock contradicted it:
-#   timed in one CI job at the six judged sizes the list design takes 3.63 s and
-#   the packed design 0.07 s, so packed wins 52x where this model said list
-#   should win. That annotation was itself wrong, and the error was the
-#   instrument. `stage2/widthcost.py` then held the reduction-step count fixed at
-#   20,000 and varied only operand width: 20,301 bits costs 1.1x what 1 bit
-#   costs. Width is free in real time, because GMP makes a 43-word operation
-#   about as fast as a 1-word one, so wall clock can never see the quantity this
-#   file charges for.
+#   This file charges by operand size in machine words. On 27 Sep 2026 it was
+#   annotated as predicting the ranked metric to within 14%, on the strength of a
+#   calibration against the leading figures. That annotation was wrong. The
+#   design this model recommends -- every value a single partition count, more
+#   operations in exchange for narrow ones -- was built, proved for every n, and
+#   submitted as 796. It scored 3,396,012,941 against the packed design's
+#   131,460,833: twenty-six times worse, and 262 times the 13M this model
+#   predicted for it.
 #
-#   The ranked metric can. Calibrated against the leaders -- the two-term
-#   peeling identity needs 2,074 additions across the six judged sizes and rank 1
-#   is at 1,429,499, so 689 units per small-number operation -- this model's
-#   count for the packed design predicts
+#   Per operation the measured figures are about 180,000 units for the narrow
+#   design and about 82,000 for the wide one, so narrow operands cost MORE per
+#   operation. The ranked metric counts kernel reduction steps and is nearly
+#   blind to width, which is also what stage2/widthcost.py measured for elapsed
+#   time: holding the step count at 20,000 and varying only width, a 20,301-bit
+#   operand costs 1.1 times a 1-bit one.
 #
-#       168,692 word operations x 689 = 116,000,000   predicted
-#                                       132,036,341   measured on the board
-#
-#   within 14%. So this model does predict the judge, and the claim it makes
-#   about the reduction being most of the cost stands on the metric that is
-#   ranked. It is wall clock that this model does not predict, and it was never
-#   trying to.
-#
-#   What remains true from the first annotation: submission 713 was made on this
-#   model before either instrument had been checked, which was premature. It was
-#   superseded by 716 in the same minute on the strength of wall clock, which was
-#   the wrong instrument. 713's score, when the board rescores, is the direct
-#   test of the calibration above.
+#   Keep this file as a record of a wrong turn that cost nine ranks, not as a
+#   model to reason from. What it is still good for is counting operations, which
+#   is the quantity that does matter -- just do not multiply by a width.
 #
 # Usage: py stage2/partition/bitcost.py
 # Author: Amey Thakur
