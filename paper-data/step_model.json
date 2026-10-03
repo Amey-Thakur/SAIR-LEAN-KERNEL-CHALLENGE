@@ -1,0 +1,76 @@
+{
+  "model": "one step per Nat primitive, per definition unfolding, per list constructor match",
+  "rows": [
+    {
+      "n": 14,
+      "answer": 135,
+      "spec": 4367,
+      "list": 5575,
+      "packed": 243,
+      "packed_wide_width": 243,
+      "field_bits": 29,
+      "wide_field_bits": 57,
+      "row_bits": 435
+    },
+    {
+      "n": 18,
+      "answer": 385,
+      "spec": 12788,
+      "list": 10639,
+      "packed": 326,
+      "packed_wide_width": 326,
+      "field_bits": 37,
+      "wide_field_bits": 91,
+      "row_bits": 703
+    },
+    {
+      "n": 22,
+      "answer": 1002,
+      "spec": 34159,
+      "list": 18079,
+      "packed": 406,
+      "packed_wide_width": 406,
+      "field_bits": 45,
+      "wide_field_bits": 111,
+      "row_bits": 1035
+    },
+    {
+      "n": 26,
+      "answer": 2436,
+      "spec": 85255,
+      "list": 28368,
+      "packed": 489,
+      "packed_wide_width": 489,
+      "field_bits": 53,
+      "wide_field_bits": 131,
+      "row_bits": 1431
+    },
+    {
+      "n": 32,
+      "answer": 8349,
+      "spec": 304105,
+      "list": 50213,
+      "packed": 621,
+      "packed_wide_width": 621,
+      "field_bits": 65,
+      "wide_field_bits": 193,
+      "row_bits": 2145
+    },
+    {
+      "n": 36,
+      "answer": 17977,
+      "spec": 672182,
+      "list": 69768,
+      "packed": 716,
+      "packed_wide_width": 716,
+      "field_bits": 73,
+      "wide_field_bits": 217,
+      "row_bits": 2701
+    }
+  ],
+  "totals": {
+    "spec": 1112856,
+    "list": 182642,
+    "packed": 2801
+  }
+}

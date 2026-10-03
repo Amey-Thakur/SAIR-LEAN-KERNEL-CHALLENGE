@@ -1,0 +1,101 @@
+{
+  "what": "Every problem in the SAIR Lean Kernel Challenge, measured the same way: can the Lean kernel reduce the shipped reference starter at the judged sizes, and what does a replacement cost. Times are seconds of wall clock in one GitHub Actions job per problem, starter and candidate in the same job on the same runner, at upstream commit 940f0a2ead23ef70ab1387edabb347e629111edd.",
+  "caveat": "Wall time on a shared runner varies by about twenty per cent between runs; the same sha256 starter measured 47.89 and 59.60 seconds on two runs of the same code. Comparisons are therefore only made within a single job. The competition's own metric is a hardware instruction count read through perf_event_open, which a virtualised runner does not expose, so none of these numbers is an official score.",
+  "reduces_key": "whether the kernel could reduce impl n to the specification's own value at the judged sizes at all",
+  "problems": [
+    {
+      "name": "partition",
+      "difficulty_axis": "n, 14 to 36",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "whole dynamic-programming row packed into one Nat",
+      "starter_worst_s": 48.4,
+      "candidate_worst_s": 0.07,
+      "note": "totals over the six judged sizes, not a single case"
+    },
+    {
+      "name": "ca-rule110",
+      "difficulty_axis": "evolution steps, 2 to 8",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "whole 256-cell automaton row packed into one Nat",
+      "spec_ops": 786432,
+      "candidate_ops": 64,
+      "op_ratio": 12288,
+      "note": "operation counts under the paper's own step model, not wall time"
+    },
+    {
+      "name": "fib",
+      "difficulty_axis": "n, 5000 to 150000",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "none: the starter is Mathlib's fast doubling and was left alone",
+      "starter_worst_s": 2.14,
+      "candidate_worst_s": null,
+      "note": "1.78 s of that is process startup, so the kernel work at n = 150000 is about 0.36 s"
+    },
+    {
+      "name": "polydisc",
+      "difficulty_axis": "packed input, 2^18 to 2^63",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "none: measured competitive and left alone",
+      "starter_worst_s": 1.51,
+      "candidate_worst_s": null
+    },
+    {
+      "name": "permanent",
+      "difficulty_axis": "matrix dimension, 6 to 16",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "sparse rows: the non-zero cells extracted once instead of scanned per node",
+      "starter_worst_s": 27.12,
+      "candidate_worst_s": 8.79,
+      "note": "3.1x at the hardest judged dimension; the proof rests on propext alone"
+    },
+    {
+      "name": "sha256",
+      "difficulty_axis": "chain steps, 4 to 512",
+      "starter_reduces": true,
+      "defect": null,
+      "method": "message schedule fused into the rounds, so no list is built per block",
+      "starter_worst_s": 59.6,
+      "candidate_worst_s": 53.34,
+      "note": "about eleven per cent, far less than removing roughly 65,000 allocations suggested; the cost is the round function, not the plumbing"
+    },
+    {
+      "name": "primecount",
+      "difficulty_axis": "n, 50 to 1000",
+      "starter_reduces": false,
+      "defect": "Nat.minFac dispatches through minFacAux, which is well-founded recursion",
+      "starter_reduced_cases": 3,
+      "starter_total_cases": 12,
+      "starter_last_reducible_n": 2,
+      "method": "trial division with an explicit fuel, bounded by d*d <= p rather than by Nat.sqrt",
+      "candidate_reduced_cases": 12,
+      "candidate_worst_s": 3.79,
+      "intermediate_worst_s": 91.42,
+      "note": "the intermediate figure is an unbounded downward walk, kept as SubmissionLinear.lean"
+    },
+    {
+      "name": "mertens",
+      "difficulty_axis": "n, 25 to 500",
+      "starter_reduces": false,
+      "defect": "ArithmeticFunction.moebius reaches Nat.minFac through Squarefree and the prime factorisation",
+      "starter_reduced_cases": 1,
+      "starter_total_cases": 11,
+      "starter_last_reducible_n": 0,
+      "method": "structural minFac proved equal to Nat.minFac, then Mathlib's own characterisation of moebius",
+      "candidate_reduced_cases": 11,
+      "candidate_worst_s": 4.22
+    }
+  ],
+  "summary": {
+    "problems": 8,
+    "starters_that_do_not_reduce": 2,
+    "both_caused_by": "well-founded recursion reaching Nat.minFac",
+    "packed_row_applied_to": 2,
+    "left_alone_on_measurement": 2,
+    "optimised": 6
+  }
+}

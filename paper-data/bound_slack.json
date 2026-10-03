@@ -1,0 +1,71 @@
+{
+  "what": "field width reserved against field width required",
+  "rows": [
+    {
+      "n": 14,
+      "largest_cell": 135,
+      "bits_needed": 8,
+      "proved_width": 29,
+      "tighter_width": 18,
+      "wide_width": 57,
+      "slack_bits": 21,
+      "proved_over_needed": 3.6,
+      "tighter_over_needed": 2.2
+    },
+    {
+      "n": 18,
+      "largest_cell": 385,
+      "bits_needed": 9,
+      "proved_width": 37,
+      "tighter_width": 23,
+      "wide_width": 91,
+      "slack_bits": 28,
+      "proved_over_needed": 4.1,
+      "tighter_over_needed": 2.6
+    },
+    {
+      "n": 22,
+      "largest_cell": 1002,
+      "bits_needed": 10,
+      "proved_width": 45,
+      "tighter_width": 27,
+      "wide_width": 111,
+      "slack_bits": 35,
+      "proved_over_needed": 4.5,
+      "tighter_over_needed": 2.7
+    },
+    {
+      "n": 26,
+      "largest_cell": 2436,
+      "bits_needed": 12,
+      "proved_width": 53,
+      "tighter_width": 31,
+      "wide_width": 131,
+      "slack_bits": 41,
+      "proved_over_needed": 4.4,
+      "tighter_over_needed": 2.6
+    },
+    {
+      "n": 32,
+      "largest_cell": 8349,
+      "bits_needed": 14,
+      "proved_width": 65,
+      "tighter_width": 38,
+      "wide_width": 193,
+      "slack_bits": 51,
+      "proved_over_needed": 4.6,
+      "tighter_over_needed": 2.7
+    },
+    {
+      "n": 36,
+      "largest_cell": 17977,
+      "bits_needed": 15,
+      "proved_width": 73,
+      "tighter_width": 42,
+      "wide_width": 217,
+      "slack_bits": 58,
+      "proved_over_needed": 4.9,
+      "tighter_over_needed": 2.8
+    }
+  ]
+}

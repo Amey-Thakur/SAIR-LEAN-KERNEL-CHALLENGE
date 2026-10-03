@@ -1,0 +1,87 @@
+{
+  "what": "Reduction wall time in seconds, process startup subtracted, measured by .github/workflows/stage2.yml in the SAIR-LEAN-KERNEL-CHALLENGE repository. Every variant ran in the same job on the same GitHub Actions runner.",
+  "route": "The three designs below were timed with the obligation written `:= by rfl`, which routes the reduction to the kernel. An earlier version of this file reported figures taken with `:= rfl`, which has the elaborator's own definitional equality checker settle the goal instead, and described them as kernel time. They were not. The two routes differ by a factor of 478 at n = 18 on a list-based design and the elaborator route does not finish above that size; they agree on the packed design, which totals 0.07 s either way. The superseded figures were specification 48.40, lists 3.05, packed 0.07.",
+  "caveat": "These are wall times on a virtualised runner, not instruction counts. The competition judge counts hardware instructions through perf_event_open, which a GitHub Actions runner does not expose. Only the ordering between designs carries over, not the numbers.",
+  "endpoints": [
+    14,
+    18,
+    22,
+    26,
+    32,
+    36
+  ],
+  "designs": {
+    "specification": [
+      0.21,
+      0.61,
+      1.66,
+      4.33,
+      15.58,
+      35.25
+    ],
+    "lists": [
+      0.13,
+      0.22,
+      0.37,
+      0.57,
+      0.97,
+      1.34
+    ],
+    "packed": [
+      0.02,
+      0.0,
+      0.02,
+      0.01,
+      0.01,
+      0.02
+    ]
+  },
+  "totals": {
+    "specification": 57.64,
+    "lists": 3.58,
+    "packed": 0.07
+  },
+  "ratios": {
+    "specification_over_packed": 823,
+    "lists_over_packed": 51
+  },
+  "width_study": {
+    "what": "At the judged sizes the packed row finishes inside the timer's resolution, so the field width was tuned where the work is large enough to see.",
+    "route": "These two rows were timed through the elaborator's checker, not the kernel. They are retained because the two routes agree on the packed design, so a comparison between two packed widths is unaffected; the wide-width variant no longer exists as a file and so was not re-timed.",
+    "n": [
+      100,
+      150,
+      200,
+      300
+    ],
+    "width_n_bits_n1_plus_1": [
+      0.08,
+      0.16,
+      0.32,
+      1.06
+    ],
+    "width_2n_plus_1": [
+      0.03,
+      0.06,
+      0.11,
+      0.27
+    ]
+  },
+  "judged": {
+    "what": "The competition's own metric, which was unavailable when the designs were chosen and has since scored two of them. These are the judge's figures, not a substitute for them.",
+    "metric": "computationTotal, ranking contract computation-total-v1",
+    "packed_row_w_2n_plus_1": 131460833,
+    "two_term_small_numbers": 3396012941,
+    "ratio": 25.8,
+    "per_operation": {
+      "packed_units_per_operation": 47000,
+      "two_term_units_per_operation": 180000,
+      "note": "A one-word list operation costs more than a forty-three-word arithmetic operation, so the metric is not charging for operand width. Operation kind is what separates the designs."
+    },
+    "substitute_accuracy": {
+      "wall_time_predicted_ratio": 16.3,
+      "step_count_predicted_ratio": 6.7,
+      "note": "Both substitutes rank the designs correctly and neither sizes the gap; wall time is low by 1.6x and the step count by 3.9x."
+    }
+  }
+}
