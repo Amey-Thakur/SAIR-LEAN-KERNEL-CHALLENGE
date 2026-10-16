@@ -11,14 +11,60 @@ folder holds entries for the actual problems.
 > The competition selects **the latest entry by submission time, not the best
 > one**, so nothing slower should be uploaded after it.
 
+## What is live, on all eight problems
+
+Verified 16 October 2026 against the board published that morning. Every
+problem carries this repository's best entry; there is nothing prepared here
+that has not been sent.
+
+| Problem | Live entry | Submission | Rank | Instructions | vs leader |
+|---|---|---:|---:|---:|---:|
+| `partition` | `partition/SubmissionPacked.lean` | 1103 | 25/40 | 131,411,775 | 91.9x |
+| `fib` | starter, unmodified | 687 | 41/43 | 96,245,398 | 13.9x |
+| `polydisc` | starter, unmodified | 692 | 27/31 | 10,318,705,860 | 12.9x |
+| `ca-rule110` | `ca-rule110/Submission.lean` | 694 | 32/37 | 2,155,958,695 | 686.5x |
+| `primecount` | `primecount/Submission.lean` | 697 | 32/32 | 6,611,464,244 | 4574.1x |
+| `mertens` | `mertens/Submission.lean` | 699 | 30/30 | 8,458,975,117 | 5430.5x |
+| `sha256` | `sha256/Submission.lean` | 700 | 27/32 | 151,050,452,571 | 16.1x |
+| `permanent` | `permanent/Submission.lean` | 701 | 31/34 | 208,233,663,818 | 7067.6x |
+
+All eight complete every judged case: coverage is 6/6, and 15/15 on
+`permanent`.
+
+**How this was established, and why it needed establishing.** The API has no
+way to read a submission back. `GET /submissions` and
+`GET /submissions/{id}` both answer `405 Method Not Allowed`, so the board's
+submission id is the only thing it will tell you, and an id does not say
+which file produced it. `submit.py` derives its idempotency key from the
+submission text, so re-sending a file that is already live returns the stored
+submission instead of creating one. Replaying each file that way is therefore
+a read, not a write: five answered `200` naming exactly the id the board
+ranks, and `fib` and `polydisc` answered `409 IDEMPOTENCY_CONFLICT`, meaning
+the same text was already used for a submission, which settles those two as
+well. `whatsliv.py` reproduces the check.
+
+**Where the headroom is.** Four entries are two to four orders of magnitude
+off their leader: `permanent` at 7,067x, `mertens` at 5,430x, `primecount` at
+4,574x and `ca-rule110` at 686x. Those are design gaps, not tuning gaps, and
+they are the only places left where work changes the standing. `fib` and
+`polydisc` still carry the shipped starter because neither admits a kernel
+reduction worth the name; `sha256` and `polydisc` sit within about 16x of
+their leaders, where the remaining distance is small.
+
 ## What is here
 
 | File | What it is |
 |---|---|
-| `partition/SubmissionPacked.lean` | The entry. A whole row of the table in one `Nat`. |
+| `<problem>/Submission.lean` | The entry for that problem, except `partition`. |
+| `<problem>/submission-note.md` | The note pasted into the submission form, and the measurements taken before sending. |
+| `partition/SubmissionPacked.lean` | The `partition` entry. A whole row of the table in one `Nat`. |
 | `partition/Submission.lean` | An earlier, slower entry kept as a fallback: the same recurrence on lists. |
+| `baseline-note.md` | The note used for the seven starters submitted before optimisation began. |
 | `bench.py` | Builds a candidate in the real problem package, checks its axioms, and times the kernel reducing `impl n`. |
 | `compare.py` | Prints several runs side by side. |
+| `board.py` | Current standing on one problem, without waiting for the next publish. |
+| `whatsliv.py` | Which file each problem's live entry is, by idempotency replay. |
+| `submit.py` | Sends one entry. Dry run by default. |
 
 ## The problem
 
