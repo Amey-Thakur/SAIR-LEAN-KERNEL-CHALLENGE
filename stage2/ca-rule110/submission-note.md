@@ -45,3 +45,52 @@ Run `36280925440` of `.github/workflows/ca.yml`, on the challenge pinned at
   covering 0, 1, 2, 4, 8 and 13 steps across four seeds.
 - `model.py` re-checks the design against the specification on every run, so a
   build cannot pass with an algorithm that has drifted from the spec.
+
+---
+
+## Correction, 16 October 2026: the cost estimate above is wrong
+
+The paragraph that declines to optimise the initial row says it "costs a few
+hundred kernel steps against the hundreds of thousands the stepping costs".
+That is backwards, and it was asserted rather than counted.
+
+The judged cases ask for **0, 1, 2, 4, 8 and 13 steps**. `pStep` is eight `Nat`
+operations and `pIter` adds one unfolding, so the stepping is at most 117
+operations in the worst judged case. The initial row is 5,348: the
+specification evaluates a 32-bit mixing hash once per cell, 256 times, then
+builds a 256-element list and walks it again to pack. **The row is 98% of the
+work and the stepping is 2%.** `stepmodel.py` counts both.
+
+This explains the standing. The entry is 686x its leader while doing the
+stepping about as well as it can be done, because the stepping was never where
+the cost was.
+
+`lanes.py` settles the replacement and checks it: give every cell a 128-bit
+lane inside one `Nat`, and the whole hash runs on all 256 cells at once,
+because a right shift shifts every lane and a multiply by a 32-bit constant
+multiplies every lane without carrying between them. The lane has to be 128
+bits wide and not 64 because the specification hashes `seed + (i+1)*PHI`
+**unmasked**, which reaches 41 bits, and its first round forms
+`(x ^ (x >>> 16)) * A1` before any masking, so the widest intermediate is 73
+bits.
+
+Gathering one bit per lane back into one bit per position cannot be done with a
+single shift, since cell `i` must travel `127i` places. Merging in pairs can:
+after `k` rounds the cells sit in groups of `2^k` at the bottom of a
+`128*2^k`-bit field, and merging two neighbouring groups leaves the lower one
+in place and moves the upper one down by `128*2^k - 2^k`, which is the same for
+every pair. Eight rounds, one shift and two masks each.
+
+| | operations to build the row |
+| :--- | ---: |
+| the entry as submitted | 5,348 |
+| lane-packed | **99** |
+| | **54x** |
+
+Checked against the specification on 2,014 seeds, including all four judged
+seeds, and every one of the 24 published cases reproduced end to end.
+
+**This is not submitted.** The algorithm is settled and the measurement is
+taken; the Lean proof that the lane arithmetic is what the specification says
+is the remaining work, and the competition evaluates the latest entry rather
+than the best, so nothing goes up until that proof closes.
