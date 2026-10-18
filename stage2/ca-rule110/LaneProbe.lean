@@ -656,4 +656,68 @@ theorem payload_eight (b : Nat → Nat) :
   show pack 1 (fun t => b (256 * 0 + t)) 256 = pack 1 b 256
   exact pack_congr 1 256 (fun t _ => by rw [Nat.mul_zero, Nat.zero_add])
 
+/-! ## The gather, as one lemma used eight times
+
+`merge_round` is about an arbitrary lane function; `payload_succ` says the
+payload is exactly what one round produces. Putting the two together gives a
+single lemma that advances the round counter, so the eight rounds in the
+submission are eight instantiations of it rather than eight bit arguments.
+-/
+
+theorem gather_round (b : Nat → Nat) (hb : ∀ k, b k < 2) (r m W : Nat)
+    (hW : 0 < W) (hh : 2 ^ r ≤ W) :
+    (pack W (payload b r) (2 * m) &&& pack (2 * W) (fun _ => 2 ^ 2 ^ r - 1) m)
+      + ((pack W (payload b r) (2 * m) >>> W)
+          &&& pack (2 * W) (fun _ => 2 ^ 2 ^ r - 1) m) * 2 ^ 2 ^ r
+      = pack (2 * W) (payload b (r + 1)) m := by
+  rw [merge_round (payload b r) hW hh (payload_lt hb r)]
+  exact pack_congr (2 * W) m (fun j _ => (payload_succ b r j).symm)
+
+/-- The gather starts from the bits themselves. -/
+theorem gather_start (b : Nat → Nat) (W n : Nat) :
+    pack W (payload b 0) n = pack W b n :=
+  pack_congr W n (fun j _ => payload_zero b j)
+
+/-! ## The two fixed cells
+
+The specification fixes cell 0 to true and cell 1 to false, excluding the two
+spatially uniform rows. On the packed row that is one shift, one multiply and
+one addition, because `pack_split` peels the bottom two lanes off a
+width-one packing and the hash never has to be corrected.
+-/
+
+theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
+    (hfg : ∀ t, f (2 + t) = g (2 + t)) (hg0 : g 0 = 1) (hg1 : g 1 = 0) :
+    (pack 1 f 256 >>> 2) * 4 + 1 = pack 1 g 256 := by
+  have hpow : (2 : Nat) ^ (1 * 2) = 4 := by rfl
+  have hlow : pack 1 f 2 < 4 := by
+    have h := pack_lt 1 f hf 2
+    rw [hpow] at h
+    exact h
+  have hsf : pack 1 f 256
+      = pack 1 f 2 + pack 1 (fun t => f (2 + t)) 254 * 4 := by
+    have h := pack_split 1 f 2 254
+    rw [hpow] at h
+    exact h
+  have hsg : pack 1 g 256
+      = pack 1 g 2 + pack 1 (fun t => g (2 + t)) 254 * 4 := by
+    have h := pack_split 1 g 2 254
+    rw [hpow] at h
+    exact h
+  have hg2 : pack 1 g 2 = 1 := by
+    show 0 + g 0 * 2 ^ (1 * 0) + g 1 * 2 ^ (1 * 1) = 1
+    rw [hg0, hg1]
+    rfl
+  have hup : pack 1 (fun t => f (2 + t)) 254
+      = pack 1 (fun t => g (2 + t)) 254 :=
+    pack_congr 1 254 (fun t _ => hfg t)
+  -- the shift is exact, because the two lanes it drops are below 4
+  have hdiv : pack 1 f 256 >>> 2 = pack 1 (fun t => f (2 + t)) 254 := by
+    rw [Nat.shiftRight_eq_div_pow, hsf]
+    show (pack 1 f 2 + pack 1 (fun t => f (2 + t)) 254 * 4) / 4 = _
+    rw [Nat.add_mul_div_right _ _ (by omega), Nat.div_eq_of_lt hlow,
+        Nat.zero_add]
+  rw [hdiv, hsg, hg2, hup]
+  omega
+
 end Lane
