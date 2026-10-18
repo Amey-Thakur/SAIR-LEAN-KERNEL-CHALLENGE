@@ -917,6 +917,7 @@ theorem mix_packed {seed : Nat} (hs : seed < 2 ^ 32) :
         (rampLane_lt64 hs),
       stageP_pack _ (by omega) (by decide) hs1,
       xorshiftP_pack _ hs2]
+  exact Lane.pack_congr 64 256 (fun k _ => rfl)
 
 /-! ## The gather -/
 
@@ -1068,7 +1069,6 @@ theorem bitOf_eq_specBit {seed : Nat} (hs : seed < 2 ^ 32) :
     ∀ t, t < 254 → bitOf seed (2 + t) = specBit seed (2 + t) := by
   intro t ht
   have hlt : 2 + t < 256 := by omega
-  have hne0 : ¬ (2 + t = 0) := by omega
   have hne1 : ¬ (2 + t = 1) := by omega
   have h48 : rampLane seed (2 + t) < 2 ^ 48 :=
     Nat.lt_of_lt_of_le (rampLane_lt hs _)
@@ -1076,7 +1076,7 @@ theorem bitOf_eq_specBit {seed : Nat} (hs : seed < 2 ^ 32) :
   have hr : rampLane seed (2 + t) = seed + (2 + t + 1) * 2654435769 := by
     rw [rampLane, if_pos hlt]
   rw [bitOf, specBit, Lane.mixLane_eq h48, hr]
-  simp [hne0, hne1]
+  simp [hne1]
 
 /-- The row the packed arithmetic builds is the row the specification
 encodes. -/

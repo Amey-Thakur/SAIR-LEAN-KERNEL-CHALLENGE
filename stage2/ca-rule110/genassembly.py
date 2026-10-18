@@ -192,6 +192,7 @@ def block() -> str:
     a("        (rampLane_lt64 hs),")
     a("      stageP_pack _ (by omega) (by decide) hs1,")
     a("      xorshiftP_pack _ hs2]")
+    a("  exact Lane.pack_congr 64 256 (fun k _ => rfl)")
     a("")
 
     # ---------------------------------------------------------- the gather --
@@ -280,7 +281,6 @@ def block() -> str:
     a("    ∀ t, t < 254 → bitOf seed (2 + t) = specBit seed (2 + t) := by")
     a("  intro t ht")
     a("  have hlt : 2 + t < 256 := by omega")
-    a("  have hne0 : ¬ (2 + t = 0) := by omega")
     a("  have hne1 : ¬ (2 + t = 1) := by omega")
     a("  have h48 : rampLane seed (2 + t) < 2 ^ 48 :=")
     a("    Nat.lt_of_lt_of_le (rampLane_lt hs _)")
@@ -288,7 +288,7 @@ def block() -> str:
     a(f"  have hr : rampLane seed (2 + t) = seed + (2 + t + 1) * {PHI} := by")
     a("    rw [rampLane, if_pos hlt]")
     a("  rw [bitOf, specBit, Lane.mixLane_eq h48, hr]")
-    a("  simp [hne0, hne1]")
+    a("  simp [hne1]")
     a("")
     a("/-- The row the packed arithmetic builds is the row the specification")
     a("encodes. -/")
