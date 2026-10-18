@@ -52,7 +52,7 @@ with a different note, and only `201` creates. `whatsliv.py` runs the check.
 | `ca-rule110` | the stepping dominates, so the initial row is not worth optimising | judged cases ask at most 13 steps: the row is 5,348 of 5,465 operations | **false**, and it was the whole of the gap. Shipped as submission 1613: all 24 judged cases reduce in **0.28 s** against the previous entry's **2.50 s** |
 | `fib` | `p.2 ^ 2` goes through `Monoid.npow`, and `Nat.binaryRec` is costly | both designs reduce `n = 150000` in 0.34 s of work, within 2% | **false**; neither suspect is real |
 | `polydisc` | the exactness test is a fifth of the bit-work, so removing it is worth a fifth | removing it measures **3%** at the hardest difficulty | the saving is real but small: a bit-length proxy overstates a division by a nearly equal divisor |
-| `ca-rule110` | 5,348 narrow operations against 64 wide ones is a factor of 84 | the row alone measures **5.6x** | **the count overstates it**: a packed value is 16,384 bits where the specification's are 32 to 64, and the kernel is not indifferent to width |
+| `ca-rule110` | 5,348 narrow operations against 64 wide ones is a factor of 84 | the row alone measures **5.6x**, but all 24 judged cases measure **2.50 s to 0.28 s** | the row-only figure was FLOOR-LIMITED and misled me for a day; see below |
 
 Negative results are kept rather than deleted. Each removes an explanation for
 a gap, which is the only thing that makes the next attempt cheaper.
@@ -169,3 +169,37 @@ counts are known by hand.
   values that never exceed 17,977. `partAux k m ≤ 2^m · (k+1)` is provable by
   the same induction and would narrow it by about 1.7x.
 - The other seven problems have no entry yet.
+
+## What the judge charges for, settled 18 October 2026
+
+This repository has carried two cost models that call for opposite fixes, and
+`polydisc.yml` still says in its header that "whichever the judge charges for
+decides what is worth building, and only a measurement can say." The
+`ca-rule110` resubmission is that measurement.
+
+| | |
+| :--- | ---: |
+| operation count predicted | **30.2x** (5,465 operations to 181) |
+| raw clock, start-up included | 8.9x (2.50 s to 0.28 s) |
+| clock with the 0.24 s start-up subtracted | 56.5x (2.26 s to 0.04 s) |
+
+The prediction sits inside the measurement's own range, so **operation count
+predicted this correctly**, and the currency is the number of kernel
+reduction steps rather than the width of the operands. `widthcost.py` said as
+much from the other direction, measuring a flat per-step cost of about 60 us.
+
+**The 5.6x that argued the opposite was a measurement artefact, and it is
+worth knowing how.** It compared an 84x operation ratio for the initial ROW
+against a timing whose packed side was within 0.04 s of bare Lean start-up:
+the computation had already vanished into the floor, so the ratio measured the
+floor and not the work. The lesson is not that the count lies but that **a
+ratio is meaningless once either side reaches the measurement floor**, and the
+fix is to compare at a scope where both sides still do visible work, which is
+what timing all 24 judged cases in one process did.
+
+Against this, the proxy that genuinely does mislead is **bit length**: on
+`polydisc` it predicted a fifth and measured 3%, because it scores a division
+at `a_bits + b_bits` and so overstates a division by a nearly equal divisor.
+
+**So: count operations, not bits.** That is why the lane-packed row worked, and
+it is the rule to apply to the remaining problems.
