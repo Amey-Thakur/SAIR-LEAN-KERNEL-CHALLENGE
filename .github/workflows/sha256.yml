@@ -1,0 +1,179 @@
+name: sha256
+
+## Measures a sha256 candidate against the shipped entry, in the real problem
+## package, on the same runner, in the same run.
+##
+## The entry that is live replaced the specification's list-based message
+## schedule with a sixteen-field structure and measured 11%. Its own note drew
+## the right conclusion from that: the cost of this problem is the round
+## function's masked 32-bit arithmetic, not the plumbing around it.
+##
+## `stage2/sha256/model.py` counts the arithmetic and says where it is. Of the
+## three changes it models, rotating with one multiplication instead of two
+## shifts and an or is worth 1.48x on its own, deferring the mask across a
+## chain of additions is worth 1.04x, and folding the padding's zero words out
+## of the message schedule is worth 1.5%. Only the rotation is pursued.
+##
+## The package uses core Lean with no Mathlib dependency, so a run is a Lean
+## download and a build.
+##
+## Authors: Amey Thakur (https://github.com/Amey-Thakur)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stage2/sha256/**"
+      - "stage2/timecases.py"
+      - "stage2/report_times.py"
+      - ".github/workflows/sha256.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a change upstream cannot move the target underneath a proof.
+  UPSTREAM_SHA: 940f0a2ead23ef70ab1387edabb347e629111edd
+
+jobs:
+  measure:
+    name: candidate against the shipped entry
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # The algorithm is settled in Python before any Lean is written, and it
+      # is checked against the specification AND against hashlib, which shares
+      # no code with either transcription. A failure here is a failure of the
+      # design rather than of the proof, and the two are worth telling apart.
+      - name: Re-check the design against the specification and hashlib
+        run: python stage2/sha256/model.py
+
+      # Every lemma name in a proof written without a toolchain is a guess.
+      # This compiles the guesses alone, so a wrong name is reported by itself
+      # rather than buried in the real proof's errors, and `#check` prints the
+      # statement so the direction of each rewrite is known before it is used.
+      - name: Probe the rotation proof on its own
+        id: probe
+        continue-on-error: true
+        working-directory: upstream/problems/sha256
+        run: |
+          set -o pipefail
+          lake build Spec
+          cp ../../../stage2/sha256/RotProbe.lean .
+          lake env lean RotProbe.lean 2>&1 | tee ../../../rotprobe.log || true
+          echo "--- names that did not resolve ---"
+          grep -E "[Uu]nknown (constant|identifier)" ../../../rotprobe.log \
+            || echo "(all resolved)"
+          echo "--- error count ---"
+          grep -cE "error" ../../../rotprobe.log || echo 0
+
+      - name: Place the candidate in the real problem package
+        run: |
+          if diff -q stage2/sha256/Submission.lean \
+               upstream/problems/sha256/Submission.lean >/dev/null 2>&1; then
+            echo "candidate is byte-identical to the shipped starter"
+          else
+            cp stage2/sha256/Submission.lean \
+               upstream/problems/sha256/Submission.lean
+            wc -l upstream/problems/sha256/Submission.lean
+          fi
+
+      - name: Build the candidate, which is where the proof is checked
+        id: build
+        continue-on-error: true
+        working-directory: upstream/problems/sha256
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tee ../../../build.log
+
+      # A proof that closes on a forbidden axiom is a rejection, not a win.
+      - name: Check the axioms are permitted
+        if: steps.build.outcome == 'success'
+        working-directory: upstream/problems/sha256
+        run: |
+          printf 'import Submission\n#print axioms Submission.impl_correct\n' > Axioms.lean
+          lake env lean Axioms.lean 2>&1 | tee ../../../axioms.txt
+          if grep -qiE "unknown|error" ../../../axioms.txt; then
+            echo "impl_correct missing or errored"; cat ../../../axioms.txt; exit 1
+          fi
+          if ! grep -q "axioms" ../../../axioms.txt; then
+            echo "no axiom line reported"; exit 1
+          fi
+          if grep -qiE "sorryAx|native" ../../../axioms.txt; then
+            echo "FORBIDDEN AXIOM"; exit 1
+          fi
+
+      # The entry that is live and the candidate, timed back to back on the
+      # same runner. The 512-step case alone is about 53 s against a 120 s
+      # watchdog, so this is where a regression would be caught before it
+      # could cost a judged case.
+      - name: Time the previous entry against the candidate
+        if: steps.build.outcome == 'success'
+        working-directory: upstream/problems/sha256
+        run: |
+          for which in prev new; do
+            if [ "$which" = prev ]; then
+              git -C ../.. checkout -- problems/sha256/Submission.lean
+            else
+              cp ../../../stage2/sha256/Submission.lean Submission.lean
+            fi
+            lake build > /dev/null 2>&1 || true
+            python ../../../stage2/timecases.py \
+              --cases ../../../stage2/sha256/cases.json \
+              --label "$which" --out "../../../$which-times.json" \
+              --timeout 600 || true
+          done
+          echo "=== result ==="
+          python ../../../stage2/report_times.py \
+            ../../../prev-times.json ../../../new-times.json || true
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### sha256"
+            if [ -f rotprobe.log ]; then
+              echo "rotation probe:"
+              echo '```'
+              grep -E "error|[Uu]nknown" rotprobe.log | head -20 \
+                || echo "(no errors)"
+              echo '```'
+            fi
+            if [ -f axioms.txt ]; then echo "axioms:"; cat axioms.txt; fi
+            if [ -f build.log ] && grep -qE "^error" build.log; then
+              echo "build errors:"; echo '```'
+              grep -E "error" build.log | head -20; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sha256-logs
+          path: |
+            rotprobe.log
+            build.log
+            axioms.txt
+            prev-times.json
+            new-times.json
+          if-no-files-found: warn
