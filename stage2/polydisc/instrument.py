@@ -103,6 +103,61 @@ def judged_cases() -> list[tuple[str, str, str]]:
     return out
 
 
+def breakdown() -> list[tuple[str, str, str]]:
+    """Where the kernel's work actually sits inside one judged case.
+
+    `costmodel.py` puts 55% of the operations in the coefficient setup and 95%
+    of the bit-work in the subresultant loop, and the two halves imply opposite
+    repairs. Operation count has now been measured to be the currency, but that
+    does not settle it, because the setup's operations are `Nat` operations on
+    narrow numbers and the loop's are `Int` operations, and those were measured
+    to differ by 5.4x each. So the two parts are measured directly.
+
+    Each file asserts a small residue, never the discriminant itself, so that
+    the figure is the computation and not the comparison of a 24,000-figure
+    literal.
+
+      setup   the coefficient list, summed
+      loop    the subresultant loop on a polynomial supplied as a literal,
+              which performs no setup at all
+      whole   the specification end to end
+    """
+    from model import (poly_of, deriv_hl, normal_resultant, disc_spec)
+
+    out = []
+    m = 1000003
+    helper = ("def total : List Int -> Int\n"
+              "  | [] => 0\n"
+              "  | x :: xs => x + total xs\n")
+    for tag, n in (("easy", 2 ** 18), ("mid", 2 ** 37), ("hard", 2 ** 57)):
+        p = poly_of(n)
+        k = kbits_of(n)
+
+        out.append((f"B_setup_{tag}",
+                    helper +
+                    f"theorem b : total (polyOf {n}) % {m} = "
+                    f"{sum(p) % m} := by rfl\n",
+                    f"the coefficient setup alone, k={k}"))
+
+        lit = ", ".join(hx(v) for v in p)
+        value = normal_resultant(p, deriv_hl(p))
+        out.append((f"B_loop_{tag}",
+                    f"def PL : List Int := [{lit}]\n"
+                    "def res : Int :=\n"
+                    "  match normalResultant PL (derivHL PL) with\n"
+                    "  | some r => r\n"
+                    "  | none => 0\n"
+                    f"theorem b : res % {m} = {value % m} := by rfl\n",
+                    f"the subresultant loop alone, on a literal polynomial, "
+                    f"k={k}"))
+
+        out.append((f"B_whole_{tag}",
+                    f"theorem b : discSpec {n} % {m} = "
+                    f"{disc_spec(n) % m} := by rfl\n",
+                    f"the specification end to end, k={k}"))
+    return out
+
+
 def loop(name: str, typ: str, step: str, reps: int, init: str,
          expect: str) -> str:
     """A fuel recursion carrying one accumulator, so two of these differ by
@@ -161,6 +216,52 @@ def micro() -> list[tuple[str, str, str]]:
                     loop(f"mi{tag}", "Int", f"(acc * {hx(cw)}) % {hx(mw)}",
                          n, "7", hx(acc)),
                     f"{n} x (Int mul + Int emod), {bits}-bit operands"))
+
+    # ---- does a negative operand cost more than a positive one ----
+    # `Int` is an inductive type with two constructors, so every operation is a
+    # case analysis before it is arithmetic, and the `negSucc` side goes
+    # through `negOfNat` and `subNatNat` where the `ofNat` side does not. Half
+    # the coefficients in this problem are negative. Both loops below perform
+    # one multiplication, one remainder and one addition per step at the same
+    # width; only the sign of the accumulator differs.
+    n = 500
+    cw = odd_hex(W_COEFF, 3)
+    mw = odd_hex(W_COEFF, 7) | (1 << (W_COEFF - 1))
+    acc = 7
+    for _ in range(n):
+        acc = (acc * cw) % mw + mw
+    out.append(("M_int_pos",
+                loop("mipos", "Int",
+                     f"(acc * {hx(cw)}) % {hx(mw)} + {hx(mw)}", n, "7",
+                     hx(acc)),
+                f"{n} x mul, emod, add with a POSITIVE accumulator, "
+                f"{W_COEFF}-bit"))
+    acc = 7
+    for _ in range(n):
+        acc = (acc * cw) % mw - mw
+    out.append(("M_int_neg",
+                loop("mineg", "Int",
+                     f"(acc * {hx(cw)}) % {hx(mw)} - {hx(mw)}", n, "7",
+                     hx(acc)),
+                f"{n} x mul, emod, sub with a NEGATIVE accumulator, "
+                f"{W_COEFF}-bit"))
+
+    # ---- what does multiplying the widest intermediate by ONE cost ----
+    # `pseudoRemainderGo` finishes with `scalePolynomial (lc ^ remaining)`, and
+    # in the normal case `remaining` is zero, so the specification multiplies
+    # every coefficient of the widest intermediate it ever holds by one: 276
+    # times per judged case. Whether that is worth removing depends on whether
+    # the kernel charges for a multiplication by one, which is this pair.
+    n = 200
+    big = odd_hex(W_BIG, 31)
+    out.append(("M_one_big",
+                loop("monebig", "Int", f"1 * (acc + 1)", n, hx(big),
+                     hx(big + n)),
+                f"{n} x (multiply by ONE, then add one), {W_BIG}-bit"))
+    out.append(("M_one_ctl",
+                loop("monectl", "Int", f"acc + 1", n, hx(big),
+                     hx(big + n)),
+                f"{n} x (add one), {W_BIG}-bit, the control for M_one_big"))
 
     # ---- division on its own, at the width the exact division runs at ----
     n = 100
@@ -326,8 +427,8 @@ def emit(directory: pathlib.Path) -> int:
                                               encoding="utf-8")
     manifest.append({"name": "Base", "note": "import and nothing else"})
 
-    groups = [("judged", judged_cases()), ("micro", micro()),
-              ("probe", probes())]
+    groups = [("judged", judged_cases()), ("breakdown", breakdown()),
+              ("micro", micro()), ("probe", probes())]
     for group, items in groups:
         for name, body, note in items:
             if group == "micro":

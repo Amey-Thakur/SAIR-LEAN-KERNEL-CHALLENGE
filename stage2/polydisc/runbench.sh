@@ -65,6 +65,13 @@ both Base
 
 for i in 0 1 2 3 4 5; do both "J$i"; done
 
+if [ "$SCOPE" = "round2" ]; then
+  for b in B_setup_easy B_loop_easy B_whole_easy \
+           B_setup_mid  B_loop_mid  B_whole_mid \
+           B_setup_hard B_loop_hard B_whole_hard \
+           M_int_pos M_int_neg M_one_big M_one_ctl; do both "$b"; done
+fi
+
 if [ "$SCOPE" = "all" ]; then
   for q in Q_pow Q_shiftl Q_shiftr Q_land Q_lor Q_gcd; do both "$q"; done
   for m in P_list P_list_ctrl P_packed \

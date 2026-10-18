@@ -287,7 +287,7 @@ jobs:
         working-directory: upstream/problems/polydisc
         run: |
           cp ../../../stage2/polydisc/runbench.sh .
-          bash runbench.sh bench 3300 all
+          bash runbench.sh bench 3300 "${SCOPE:-round2}"
           cp -r bench ../../../bench-starter
 
       - name: Report, starter
@@ -296,17 +296,39 @@ jobs:
           python stage2/polydisc/instrument.py --report bench-starter \
             | tee instrument-starter.txt
 
+      # Whatever is in Candidate.lean, built in the real package so the proof
+      # is checked, and measured on the six judged sizes against the figures
+      # above. A candidate is never copied over `Submission.lean` until it has
+      # been through this.
       - name: Place the candidate and rebuild
+        id: candbuild
+        continue-on-error: true
         working-directory: upstream/problems/polydisc
         run: |
           set -o pipefail
-          cp ../../../stage2/polydisc/Submission.lean .
-          lake build 2>&1 | tail -3
+          if [ -f ../../../stage2/polydisc/Candidate.lean ]; then
+            cp ../../../stage2/polydisc/Candidate.lean Submission.lean
+          else
+            cp ../../../stage2/polydisc/Submission.lean .
+          fi
+          lake build 2>&1 | tee ../../../candidate2-build.log | tail -30
+
+      - name: Check the candidate's axioms
+        if: steps.candbuild.outcome == 'success'
+        working-directory: upstream/problems/polydisc
+        run: |
+          printf 'import Submission\n#print axioms Submission.impl_correct\n' \
+            > Axioms2.lean
+          lake env lean Axioms2.lean 2>&1 | tee ../../../axioms2.txt
+          if grep -qiE "unknown|error|sorryAx|native" ../../../axioms2.txt; then
+            echo "FORBIDDEN OR MISSING"; exit 1
+          fi
 
       # The same six sizes against the candidate. The candidate is the entry
       # that measured 3% faster on the clock; if the instrument cannot see
       # that, it cannot see anything smaller either.
       - name: Count instructions, candidate, judged sizes only
+        if: steps.candbuild.outcome == 'success'
         working-directory: upstream/problems/polydisc
         run: |
           rm -rf benchc && cp -r bench benchc

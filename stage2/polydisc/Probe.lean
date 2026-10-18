@@ -34,3 +34,20 @@ the rewrite goes.
 -- the `Nat` side, for the coefficient setup
 #check @Nat.div_add_mod
 #check @Nat.mod_add_div
+
+-- multiplying a list by one, for the scaling the specification always does
+#check @Int.one_mul
+#check @Int.mul_one
+
+-- turning `(a == b) = true` into `a = b`, which `scaleP` needs
+#check @eq_of_beq
+#check @of_decide_eq_true
+#check @beq_iff_eq
+
+-- the exponent laws, if a power ever has to be rebuilt by hand
+#check @Nat.pow_succ
+#check @Nat.pow_zero
+#check @Nat.pow_add
+#check @Nat.pow_mul
+#check @Nat.shiftRight_eq_div_pow
+#check @Nat.shiftLeft_eq
