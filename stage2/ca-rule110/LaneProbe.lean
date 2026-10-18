@@ -69,7 +69,7 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
       (pack w f n).testBit (w * i + b) = (f i).testBit b := by
   intro n
   induction n with
-  | zero => intro _ _ _ _ hin; omega
+  | zero => intro _ _ _ hin; omega
   | succ k ih =>
     intro i b hb hin
     rcases Nat.lt_or_ge i k with hlt | hge
@@ -78,10 +78,16 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
         have h1 : w * (i + 1) ≤ w * k := Nat.mul_le_mul_left w hlt
         have h2 : w * (i + 1) = w * i + w := Nat.mul_succ w i
         omega
-      rw [pack, ← ih i b hb hlt,
-          ← Nat.testBit_mod_two_pow _ _ _ hlow,
-          ← Nat.testBit_mod_two_pow _ _ _ hlow,
-          Nat.add_mul_mod_self_left]
+      -- `testBit_mod_two_pow` states the masked read, so the new lane is
+      -- removed by taking the sum modulo the top of the earlier lanes
+      have hmod : (pack w f k + f k * 2 ^ (w * k)) % 2 ^ (w * k) = pack w f k := by
+        rw [Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt (pack_lt w f hf k)]
+      have hbit := Nat.testBit_mod_two_pow
+        (pack w f k + f k * 2 ^ (w * k)) (w * k) (w * i + b)
+      have hdec : decide (w * i + b < w * k) = true := by simp [hlow]
+      rw [hmod, hdec, Bool.true_and] at hbit
+      rw [pack, ← hbit]
+      exact ih i b hb hlt
     · -- the bit sits in the newest lane, and the earlier ones are all below it
       have hik : i = k := by omega
       subst hik
