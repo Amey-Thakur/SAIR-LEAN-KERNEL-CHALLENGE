@@ -137,7 +137,7 @@ printf 'import Submission\n#print Submission.impl\n#print Submission.fibAux\n' \
   > Shape.lean
 
 # --------------------------------------------------------------- the designs
-for design in starter Candidate CandidateRaw CandidateExtraMul; do
+for design in starter Candidate CandidateRaw CandidateLean; do
   if [ "$design" != "starter" ] && [ ! -f "$ROOT/stage2/fib/$design.lean" ]; then
     echo "=== $design: no such file, skipped ==="
     continue
