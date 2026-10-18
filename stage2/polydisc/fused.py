@@ -92,6 +92,51 @@ def spec_step(f: list[int], g: list[int]) -> list[int] | None:
     return remainder
 
 
+def bound_track(n: int) -> tuple[int, int, int]:
+    """How wide a slot a packed loop would have to reserve.
+
+    A Kronecker-packed subresultant loop can do its arithmetic with no bounds
+    at all, because evaluation at a base is a ring homomorphism. What needs a
+    bound is recovering the leading coefficient and the degree from the packed
+    integer, which is only possible when every coefficient is smaller than half
+    the base. The question is whether a bound propagated from the data, rather
+    than proved by a Hadamard-style argument, stays tight enough to fix one
+    base for the whole run:
+
+        M' = (|A| + |B| + |C|) * max(Mf, Mg) / f0^2
+
+    which is six `Nat` operations per step, not per coefficient, and uses the
+    leading coefficients actually in hand. Returns the true final coefficient
+    width, the propagated bound's width, and the slack between them, in bits.
+    """
+    p = poly_of(n)
+    f, g = trim_leading(p), trim_leading(deriv_hl(p))
+    # the input bounds are provable from the specification's own construction:
+    # |a_i| <= 2^(k-1), and the derivative multiplies by at most the degree
+    from model import kbits_of
+    k = kbits_of(n)
+    mf = 2 ** (k - 1)
+    mg = 24 * mf
+    true_max = max(max(abs(x) for x in f), max(abs(x) for x in g))
+    while len(g) >= 2 and len(f) == len(g) + 1:
+        f0, g0 = f[0], g[0]
+        A = g0 * g0
+        B = g0 * f0
+        C = g0 * f[1] - f0 * g[1]
+        r = fused_step(f, g)
+        if r is None:
+            break
+        # the bound, rounded up, and never below one
+        sq = f0 * f0
+        mr = ((abs(A) + abs(B) + abs(C)) * max(mf, mg) + sq - 1) // sq
+        worst = max(abs(x) for x in r)
+        assert worst <= mr, f"the propagated bound is not a bound at n={n}"
+        true_max = max(true_max, worst)
+        f, g, mf, mg = g, r, mg, mr
+    return (true_max.bit_length(), mg.bit_length(),
+            mg.bit_length() - true_max.bit_length())
+
+
 def main() -> int:
     agree = disagree = guarded = 0
     for n in JUDGED:
@@ -135,6 +180,17 @@ def main() -> int:
 
     print(f"\n  steps agreeing {agree}, disagreeing {disagree}, "
           f"guard refusals {guarded}")
+
+    print()
+    print("  how wide a slot a packed loop must reserve, if the bound is "
+          "propagated from the data")
+    print(f"      {'case':>8} {'true bits':>11} {'bound bits':>11} "
+          f"{'slack':>8} {'factor':>8}")
+    for n in JUDGED:
+        true_bits, bound_bits, slack = bound_track(n)
+        print(f"      2^{n.bit_length() - 1:<6} {true_bits:>11,} "
+              f"{bound_bits:>11,} {slack:>8,} "
+              f"{bound_bits / max(1, true_bits):>8.2f}")
 
     # the guard must also refuse, rather than answer wrongly, on a polynomial
     # built to drop a degree in the first pass

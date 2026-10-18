@@ -216,8 +216,17 @@ bound at step `i + 1` is
 computed from the leading coefficients actually in hand, which is about six
 `Nat` operations **per step**, not per coefficient. Because `A`, `B` and `C`
 are the real values and the division really is exact, the bound does not
-compound: it loses about `k` bits of slack per step, so over 23 steps it is
-within a factor of two of the true coefficient size. That is enough to fix a
+compound. `fused.py` propagates it through all 23 steps of every judged case
+and checks at each step that it really bounds the coefficients:
+
+| case | true final width | propagated bound | factor |
+| :--- | ---: | ---: | ---: |
+| 2^18 | 570 bits | 1,105 bits | 1.94 |
+| 2^37 | 4,881 bits | 9,188 bits | 1.88 |
+| 2^57 | 80,736 bits | 151,737 bits | **1.88** |
+
+Within a factor of 1.88 everywhere, starting from `|a_i| <= 2^(k-1)`, which is
+provable from `centeredNonzeroCoeff` itself. That is tight enough to fix one
 base for the whole run and never repack. **No Hadamard argument is needed**,
 which is the opposite of what the first pass through this reasoning concluded.
 
