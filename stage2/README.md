@@ -23,6 +23,7 @@ this repository's best entry; nothing prepared here is unsent.
 | `sha256` | `sha256/Submission.lean` | 700 | 30/35 | 151,049,224,266 | **15.0** |
 | `partition` | `partition/SubmissionPacked.lean` | 1103 | 28/43 | 131,414,027 | 90.7 |
 | `ca-rule110` | `ca-rule110/Submission.lean` | 694 | 34/39 | 2,155,396,166 | 652 |
+<!-- resubmitted 17 Oct 2026 as 1613, lane-packed initial row; awaiting the 08:00 UTC publish -->
 | `primecount` | `primecount/Submission.lean` | 697 | 34/34 | 6,614,390,870 | 4,498 |
 | `permanent` | `permanent/Submission.lean` | 701 | 32/35 | 208,166,925,573 | 4,994 |
 | `mertens` | `mertens/Submission.lean` | 699 | 32/32 | 8,450,194,815 | 5,321 |
@@ -48,9 +49,10 @@ with a different note, and only `201` creates. `whatsliv.py` runs the check.
 
 | Problem | Hypothesis | Measured | Verdict |
 |---|---|---|---|
-| `ca-rule110` | the stepping dominates, so the initial row is not worth optimising | judged cases ask at most 13 steps: the row is 5,348 of 5,465 operations | **false**, and it is the whole of the gap. `lanes.py` settles a 54x replacement |
+| `ca-rule110` | the stepping dominates, so the initial row is not worth optimising | judged cases ask at most 13 steps: the row is 5,348 of 5,465 operations | **false**, and it was the whole of the gap. Shipped as submission 1613: all 24 judged cases reduce in **0.28 s** against the previous entry's **2.50 s** |
 | `fib` | `p.2 ^ 2` goes through `Monoid.npow`, and `Nat.binaryRec` is costly | both designs reduce `n = 150000` in 0.34 s of work, within 2% | **false**; neither suspect is real |
 | `polydisc` | the exactness test is a fifth of the bit-work, so removing it is worth a fifth | removing it measures **3%** at the hardest difficulty | the saving is real but small: a bit-length proxy overstates a division by a nearly equal divisor |
+| `ca-rule110` | 5,348 narrow operations against 64 wide ones is a factor of 84 | the row alone measures **5.6x** | **the count overstates it**: a packed value is 16,384 bits where the specification's are 32 to 64, and the kernel is not indifferent to width |
 
 Negative results are kept rather than deleted. Each removes an explanation for
 a gap, which is the only thing that makes the next attempt cheaper.
