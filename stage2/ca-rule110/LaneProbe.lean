@@ -49,7 +49,7 @@ theorem testBit_pack_high (w : Nat) (f : Nat → Nat)
       omega
     rw [pack, Nat.testBit_or, ih j hwk, Nat.testBit_shiftLeft]
     have hge : w ≤ j - w * k := by
-      have : w * (k + 1) = w * k + w := by ring
+      have : w * (k + 1) = w * k + w := Nat.mul_succ w k
       omega
     rw [testBit_eq_false_of_lt_pow (hf k) hge]
     simp
@@ -70,7 +70,7 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
       rw [ih i b hb hlt]
       have : w * i + b < w * k := by
         have h1 : w * (i + 1) ≤ w * k := Nat.mul_le_mul_left w hlt
-        have h2 : w * (i + 1) = w * i + w := by ring
+        have h2 : w * (i + 1) = w * i + w := Nat.mul_succ w i
         omega
       simp [Nat.not_le_of_lt this]
     · -- the bit is in the newest lane, so everything before it is below
