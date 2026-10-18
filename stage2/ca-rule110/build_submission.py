@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # ==============================================================================
 # File: build_submission.py
-# Description: Assembles Submission.lean from the verified lane development and
-#   the existing packed stepping, with the wide constants emitted as literals.
+# Description: Assembles Submission.lean from the verified lane development,
+#   the generated assembly, and the carried-over packed stepping.
 #
 #   The change to the entry is surgical. The live submission already proves the
 #   packed Rule 110 step against the specification's list step; what it does
 #   not do is build the initial row, which stepmodel.py counts at 5,348 of the
-#   entry's 5,465 operations. Only that argument is replaced. Every lemma about
-#   the rotations, the step and the iteration is carried over untouched.
+#   entry's 5,465 operations, because the judged cases ask for at most 13
+#   steps. Only that one argument is replaced. Every lemma about the mask, the
+#   rotations, the step and the iteration is carried over byte for byte from
+#   stepping.lean.inc, which was snapshotted out of the entry that is live.
 #
-#   The constants are literals and not computed. A mask built from the
-#   recursive definition would cost operations at reduction time, and the
-#   gather is already the larger half of the work; LaneProbe.lean checks that
-#   the kernel can verify a literal against its packed form by `rfl`, at both
-#   sizes the design needs, so the masks cost nothing where it matters.
+#   The lane proofs are lifted out of LaneProbe.lean rather than restated.
+#   LaneProbe.lean is the file CI compiles on its own, so it is the only place
+#   they have ever been checked, and copying keeps the submission's proofs
+#   identical to the ones that were verified. The probe lines and the measured
+#   examples are instrumentation and do not belong in an entry.
 #
 # Usage: py stage2/ca-rule110/build_submission.py
 # Author: Amey Thakur
@@ -25,231 +27,186 @@ from __future__ import annotations
 
 import pathlib
 import re
-import sys
-
-sys.set_int_max_str_digits(200_000)
 
 HERE = pathlib.Path(__file__).resolve().parent
-CELLS = 256
-LANE = 64
-PHI = 0x9E3779B9
-A1 = 0x7FEB352D
-A2 = 0x846CA68B
 
+HEADER = """import Spec
 
-def pack(width: int, values: list[int]) -> int:
-    out = 0
-    for k, v in enumerate(values):
-        out |= v << (width * k)
-    return out
+/-!
+# ca-rule110 - the initial row built on all 256 cells at once
 
+The packed Rule 110 step in this file is unchanged, and so is every lemma
+about it. What changes is the initial row.
 
-ONES = pack(LANE, [1] * CELLS)
-RAMP = pack(LANE, [i + 1 for i in range(CELLS)])
-M32P = pack(LANE, [0xFFFFFFFF] * CELLS)
+The specification derives each cell from a 32-bit mixing hash of
+`seed + (i + 1) * 0x9e3779b9`, and the previous entry evaluated that hash 256
+times, once per cell. `stepmodel.py` in the working repository counts the
+cost: the judged cases ask for at most 13 steps, so the stepping is at most
+117 operations and the row is 5,348 of 5,465. The row, not the stepping, is
+where the work is, which is the opposite of what the previous entry's note
+claimed.
 
-# Round r reads lanes of width LANE*2^r holding 2^r bits and writes lanes of
-# twice that width holding twice as many.
-ROUNDS = []
-for r in range(8):
-    ROUNDS.append({
-        "r": r,
-        "W": LANE << r,
-        "twoW": LANE << (r + 1),
-        "held": 1 << r,
-        "lanes": CELLS >> (r + 1),
-        "mask": pack(LANE << (r + 1), [(1 << (1 << r)) - 1] * (CELLS >> (r + 1))),
-    })
+This entry gives every cell a 64-bit lane inside one natural number and runs
+the whole hash on all 256 cells at once. Lanes are a **sum**, not a bitwise
+or, and that is the one decision everything else follows from. The `|||`
+version of the central lemma is shorter, because a bit of a disjunction is a
+disjunction of bits and no carry reasoning is needed at all. It is still the
+wrong choice: the hash multiplies, multiplication distributes over a sum and
+not over a disjunction, and core Lean has no lemma to convert between them.
+Paying the no-carry argument once, in `Lane.testBit_pack`, where the lane
+bound does the work, buys two lemmas that carry **no side conditions**:
+
+* `Lane.pack_mul`, a scalar multiplies every lane;
+* `Lane.pack_add`, two packings add lane by lane.
+
+Those two are what make the design cheap. The seeded ramp across 256 lanes
+becomes two multiplications and one addition against seed-independent
+constants, instead of 256 of each. And in the gather, the even and odd halves
+of every round are joined by `pack_add` and raised into place by `pack_mul`,
+so **no carry argument appears anywhere below**.
+
+The specification masks to 32 bits *after* each multiply. A packed lane
+cannot: the shifted copy carries its neighbour's bits at the top of the lane,
+and the multiply would drag them across the boundary. So this masks *before*
+the multiply instead. The two agree because
+`(a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m`, and masking first caps the
+widest intermediate at 32 + 31 = 63 bits, which is why a lane is 64 bits wide
+and not the 128 the specification's own order of operations would force.
+
+The wide constants are literals. Building a mask from the recursive
+definition would cost operations at reduction time and the gather is already
+the larger half of the work, so each is related to its packed form by `rfl`,
+which the kernel settles once at compile time and never again while a judged
+case reduces.
+
+No precomputed answers. There is no table of rows, no hardcoded value and no
+input-dependent branch carrying an answer. Every value is computed at
+reduction time from the specification's own seed.
+-/
+
+namespace Submission
+"""
+
+IMPL = """/-! ## The packed step, carried over unchanged -/
+
+/-- All 256 low bits set: the width the specification fixes. -/
+def rowMask : Nat := (1 <<< ruleWidth) - 1
+
+/-- The left neighbour of every cell at once. Bit `i` of the result is bit
+`i - 1` of `R`, cyclically. -/
+def rotL (R : Nat) : Nat :=
+  ((R <<< 1) ||| (R >>> (ruleWidth - 1))) &&& rowMask
+
+/-- The right neighbour of every cell at once. Bit `i` of the result is bit
+`i + 1` of `R`, cyclically. -/
+def rotR (R : Nat) : Nat :=
+  ((R >>> 1) ||| ((R &&& 1) <<< (ruleWidth - 1))) &&& rowMask
+
+/-- One Rule 110 step on the packed row: eight `Nat` operations, whatever the
+row's length. -/
+def pStep (R : Nat) : Nat :=
+  (R ||| rotR R) &&& (rowMask ^^^ (rotL R &&& R &&& rotR R))
+
+/-- `t` steps. -/
+def pIter : Nat → Nat → Nat
+  | 0,     R => R
+  | t + 1, R => pIter t (pStep R)
+
+/-! ## The implementation -/
+
+def impl (n : Nat) : Nat :=
+  pIter (caSteps n) (Row.packedRow (caSeed n))
+"""
+
+CORRECT = """/-- The seed is the low 32 bits of the input, which is the bound the lane
+widths were chosen against. -/
+theorem caSeed_lt (n : Nat) : caSeed n < 2 ^ 32 := by
+  rw [caSeed]
+  exact Nat.and_lt_two_pow _ (by decide)
+
+theorem impl_correct : ∀ n, impl n = caSpecN n := by
+  intro n
+  show pIter (caSteps n) (Row.packedRow (caSeed n))
+      = encodeRow (iterRow (caSteps n) (initRowFor (caSeed n)))
+  rw [Row.packedRow_eq (caSeed_lt n)]
+  exact pIter_encodeRow _ _ (length_initRowFor _)
+"""
 
 
 def lane_development() -> str:
-    """The verified lane algebra, lifted out of LaneProbe.lean.
-
-    LaneProbe.lean is the file CI compiles on its own, so it is the only place
-    these proofs have ever been checked. Copying rather than restating keeps
-    the submission's proofs identical to the ones that were verified; the
-    `#check` lines and the `example` blocks are probes and measurements and do
-    not belong in an entry.
-    """
+    """The verified lane algebra, lifted out of LaneProbe.lean."""
     src = (HERE / "LaneProbe.lean").read_text(encoding="utf-8")
-    body = src[src.index("namespace Lane"):src.index("end Lane")]
-    body = body[len("namespace Lane"):]
-    # drop the probe lines and the measured `example`s with their set_options
-    body = re.sub(r"^#check .*\n", "", body, flags=re.M)
+    body = src[src.index("namespace Lane") + len("namespace Lane"):
+               src.index("end Lane")]
+    # that section's heading is about whether a measurement is possible
     body = re.sub(
-        r"^(set_option [^\n]*\sin\n)*example [^\n]*(\n(?![\n/]).*)*\n",
-        "", body, flags=re.M)
-    # the mask section is about whether a measurement is possible, not about
-    # the entry; its heading would dangle once the examples are gone
-    body = re.sub(
-        r"/-! ## Can the kernel check a mask against its packing.*?-/\n",
+        r"/-! ## Can the kernel check a mask against its packing.*?-/\n+",
         "", body, flags=re.S)
-    assert "#check" not in body and "\nexample" not in body
-    assert "testBit_pack" in body and "merge_round" in body
+    # The probe lines and the measured examples are instrumentation. Stripped
+    # line by line rather than by pattern: an `example` may wrap onto a second
+    # line, and a pattern that missed one would leave a measurement in the
+    # entry.
+    kept: list[str] = []
+    pending: list[str] = []
+    skipping = False
+    for line in body.splitlines():
+        if skipping:
+            if line.rstrip().endswith(":= by rfl"):
+                skipping = False
+            continue
+        if line.startswith("#check "):
+            continue
+        if line.startswith("set_option ") and line.rstrip().endswith(" in"):
+            pending.append(line)
+            continue
+        if line.startswith("example "):
+            pending.clear()
+            skipping = not line.rstrip().endswith(":= by rfl")
+            continue
+        kept.extend(pending)
+        pending.clear()
+        kept.append(line)
+    kept.extend(pending)
+    body = "\n".join(kept)
+    assert "#check" not in body, "probe lines left in"
+    assert "\nexample" not in body, "measured examples left in"
+    for name in ("testBit_pack", "pack_mul", "pack_add", "eq_of_lanes",
+                 "merge_round", "mixLane_eq", "encodeRow_map_range",
+                 "gather_round", "fix_two", "pack_stage"):
+        assert name in body, f"missing {name}"
     return body.strip("\n")
 
 
-def carried_over() -> str:
-    """The rotations, the step and the iteration, exactly as they stand."""
-    src = (HERE / "Submission.lean").read_text(encoding="utf-8")
-    start = src.index("/-! ## The Rule 110 table as a formula -/")
-    end = src.index("theorem impl_correct")
-    return src[start:end].strip("\n")
-
-
-def packed_defs() -> str:
-    out = []
-    a = out.append
-    a("/-! ## The packed initial row")
-    a("")
-    a("The live entry builds the initial row the specification's way, which")
-    a("evaluates a 32-bit mixing hash once per cell, 256 times. stepmodel.py")
-    a("counts that at 5,348 of the entry's 5,465 operations, because the")
-    a("judged cases ask for at most 13 steps. This builds the same row with")
-    a("every cell in its own 64-bit lane inside one natural number, so the")
-    a("hash runs on all 256 cells at once.")
-    a("")
-    a("The constants are literals. Building a mask from the recursive")
-    a("definition would cost operations at reduction time and the gather is")
-    a("already the larger half of the work, so each one is written out and")
-    a("related to its packed form by `rfl`, which the kernel settles once at")
-    a("compile time.")
-    a("-/")
-    a("")
-    a("/-- One in every lane. -/")
-    a(f"def onesP : Nat := {hex(ONES)}")
-    a("")
-    a("/-- The lane index plus one, in every lane. With `onesP` this builds the")
-    a("whole seeded ramp in two multiplications and one addition, because")
-    a("`Lane.pack_mul` and `Lane.pack_add` carry no side conditions. -/")
-    a(f"def rampP : Nat := {hex(RAMP)}")
-    a("")
-    a("/-- Thirty-two live bits in every lane. -/")
-    a(f"def maskP : Nat := {hex(M32P)}")
-    a("")
-    for rd in ROUNDS:
-        a(f"/-- Gather round {rd['r']}: the low {rd['held']} bit(s) of every "
-          f"{rd['twoW']}-bit field. -/")
-        a(f"def gmask{rd['r']} : Nat := {hex(rd['mask'])}")
-    a("")
-    a("theorem onesP_eq : onesP = Lane.pack 64 (fun _ => 1) 256 := by rfl")
-    a("")
-    a("theorem rampP_eq : rampP = Lane.pack 64 (fun i => i + 1) 256 := by rfl")
-    a("")
-    a("theorem maskP_eq : maskP = Lane.pack 64 (fun _ => 2 ^ 32 - 1) 256 := by")
-    a("  rfl")
-    a("")
-    for rd in ROUNDS:
-        a(f"theorem gmask{rd['r']}_eq : gmask{rd['r']}")
-        a(f"    = Lane.pack {rd['twoW']} "
-          f"(fun _ => 2 ^ 2 ^ {rd['r']} - 1) {rd['lanes']} := by rfl")
-        a("")
-    a("/-- The ramp lane, zero above the row. `Lane.pack` reads only the first")
-    a("256 lanes, so this agrees with `seed + (i+1) * 0x9e3779b9` everywhere it")
-    a("is read; being bounded at every index is what lets the lane lemmas,")
-    a("which ask for a bound at every index, apply to it at all. -/")
-    a("def rampLane (seed i : Nat) : Nat :=")
-    a(f"  if i < ruleWidth then seed + (i + 1) * {PHI} else 0")
-    a("")
-    a("/-- The initial row, all 256 cells at once. -/")
-    a("def packedRow (seed : Nat) : Nat :=")
-    a("  let x := onesP * seed + rampP * " + str(PHI))
-    a("  let x := (((x ^^^ ((x >>> 16) &&& maskP)) &&& maskP) * "
-      f"{A1}) &&& maskP")
-    a("  let x := (((x ^^^ ((x >>> 15) &&& maskP)) &&& maskP) * "
-      f"{A2}) &&& maskP")
-    a("  let x := (x ^^^ ((x >>> 16) &&& maskP)) &&& maskP")
-    a("  let b := (x >>> 31) &&& onesP")
-    for rd in ROUNDS:
-        a(f"  let b := (b &&& gmask{rd['r']}) "
-          f"+ (((b >>> {rd['W']}) &&& gmask{rd['r']}) * {rd['held'] and 2 ** rd['held']})")
-    a("  (b >>> 2) * 4 + 1")
-    return "\n".join(out)
+def assembly() -> str:
+    """The generated row, from LaneProbe.lean where it was checked."""
+    src = (HERE / "LaneProbe.lean").read_text(encoding="utf-8")
+    body = src[src.index("/-! ## Assembling the row"):]
+    assert body.rstrip().endswith("end Row")
+    assert "packedRow_eq" in body
+    return body.strip("\n")
 
 
 def main() -> None:
+    stepping = (HERE / "stepping.lean.inc").read_text(encoding="utf-8")
     parts = [
-        "import Spec",
-        "",
-        "/-!",
-        "# ca-rule110 — the initial row built on all 256 cells at once",
-        "",
-        "The packed Rule 110 step in this file is unchanged and so is every",
-        "lemma about it. What changes is the initial row.",
-        "",
-        "The specification derives each cell from a 32-bit mixing hash of",
-        "`seed + (i+1) * 0x9e3779b9`, and the previous entry evaluated that",
-        "hash 256 times, once per cell. stepmodel.py counts the cost: the",
-        "judged cases ask for at most 13 steps, so the stepping is at most 117",
-        "operations and the row is 5,348 of 5,465. The row, not the stepping,",
-        "is where the work is.",
-        "",
-        "This entry gives every cell a 64-bit lane inside one natural number",
-        "and runs the whole hash on all 256 cells at once. The lanes are a",
-        "sum rather than a bitwise or, which is the one design decision",
-        "everything else follows from: multiplication distributes over a sum,",
-        "so a scalar multiplies every lane with no side condition, and the two",
-        "halves of each gather round join by the same lemma. No carry argument",
-        "appears anywhere below.",
-        "",
-        "The specification masks to 32 bits after each multiply. A packed lane",
-        "cannot, because the shifted copy carries its neighbour's bits at the",
-        "top of the lane and the multiply would drag them across the boundary,",
-        "so this masks before the multiply instead. The two agree because",
-        "`(a % 2^m * c) % 2^m = (a * c) % 2^m`, and masking first caps the",
-        "widest intermediate at 63 bits, which is why a lane is 64 bits wide",
-        "and not the 128 the specification's own order would need.",
-        "-/",
-        "",
-        "namespace Submission",
-        "",
+        HEADER,
         "namespace Lane",
         "",
         lane_development(),
         "",
         "end Lane",
         "",
-        packed_defs(),
+        assembly(),
         "",
-        "/-! ## The packed row, as the specification's own encoding -/",
+        IMPL,
+        stepping.strip("\n"),
         "",
-        "/-! ## The packed step, unchanged -/",
-        "",
-        "/-- All 256 low bits set: the width the specification fixes. -/",
-        "def rowMask : Nat := (1 <<< ruleWidth) - 1",
-        "",
-        "/-- The left neighbour of every cell at once. Bit `i` of the result is",
-        "bit `i - 1` of `R`, cyclically. -/",
-        "def rotL (R : Nat) : Nat :=",
-        "  ((R <<< 1) ||| (R >>> (ruleWidth - 1))) &&& rowMask",
-        "",
-        "/-- The right neighbour of every cell at once. Bit `i` of the result is",
-        "bit `i + 1` of `R`, cyclically. -/",
-        "def rotR (R : Nat) : Nat :=",
-        "  ((R >>> 1) ||| ((R &&& 1) <<< (ruleWidth - 1))) &&& rowMask",
-        "",
-        "/-- One Rule 110 step on the packed row: eight `Nat` operations,",
-        "whatever the row's length. -/",
-        "def pStep (R : Nat) : Nat :=",
-        "  (R ||| rotR R) &&& (rowMask ^^^ (rotL R &&& R &&& rotR R))",
-        "",
-        "/-- `t` steps. -/",
-        "def pIter : Nat → Nat → Nat",
-        "  | 0,     R => R",
-        "  | t + 1, R => pIter t (pStep R)",
-        "",
-        "/-! ## The implementation -/",
-        "",
-        "def impl (n : Nat) : Nat :=",
-        "  pIter (caSteps n) (packedRow (caSeed n))",
-        "",
-        carried_over(),
-        "",
+        CORRECT,
         "end Submission",
     ]
     out = "\n".join(parts) + "\n"
     (HERE / "Submission.lean").write_text(out, encoding="utf-8")
-    print(f"wrote Submission.lean, {len(out.splitlines())} lines, "
+    print(f"wrote Submission.lean: {len(out.splitlines())} lines, "
           f"{len(out)} bytes")
 
 

@@ -1,32 +1,1088 @@
 import Spec
 
 /-!
-# ca-rule110 — a whole row in one natural number
+# ca-rule110 - the initial row built on all 256 cells at once
 
-The specification holds the row as a `List Bool` of length 256 and reads each
-neighbour with `getD`, which walks the list. Three reads per cell and 256 cells
-make one step quadratic, and the judge asks for up to eight of them.
+The packed Rule 110 step in this file is unchanged, and so is every lemma
+about it. What changes is the initial row.
 
-This submission keeps the specification's automaton exactly and changes only
-where the row lives. Cell `i` becomes bit `i` of a single `Nat`, and the whole
-row steps at once:
+The specification derives each cell from a 32-bit mixing hash of
+`seed + (i + 1) * 0x9e3779b9`, and the previous entry evaluated that hash 256
+times, once per cell. `stepmodel.py` in the working repository counts the
+cost: the judged cases ask for at most 13 steps, so the stepping is at most
+117 operations and the row is 5,348 of 5,465. The row, not the stepping, is
+where the work is, which is the opposite of what the previous entry's note
+claimed.
 
-    new = (c ||| r) &&& ~~~(l &&& c &&& r)
+This entry gives every cell a 64-bit lane inside one natural number and runs
+the whole hash on all 256 cells at once. Lanes are a **sum**, not a bitwise
+or, and that is the one decision everything else follows from. The `|||`
+version of the central lemma is shorter, because a bit of a disjunction is a
+disjunction of bits and no carry reasoning is needed at all. It is still the
+wrong choice: the hash multiplies, multiplication distributes over a sum and
+not over a disjunction, and core Lean has no lemma to convert between them.
+Paying the no-carry argument once, in `Lane.testBit_pack`, where the lane
+bound does the work, buys two lemmas that carry **no side conditions**:
 
-where `l` is the row rotated one place up and `r` one place down. That identity
-is the Rule 110 table, proved in `rule110_eq` rather than assumed.
+* `Lane.pack_mul`, a scalar multiplies every lane;
+* `Lane.pack_add`, two packings add lane by lane.
 
-Nothing else is optimised. The initial row is still built by the
-specification's own `initRowFor` and encoded once by its own `encodeRow`, which
-costs a few hundred steps against the hundreds of thousands the stepping costs,
-and which means this file needs no lemma about how the row is created.
+Those two are what make the design cheap. The seeded ramp across 256 lanes
+becomes two multiplications and one addition against seed-independent
+constants, instead of 256 of each. And in the gather, the even and odd halves
+of every round are joined by `pack_add` and raised into place by `pack_mul`,
+so **no carry argument appears anywhere below**.
 
-Core Lean only; the problem package has no Mathlib dependency.
+The specification masks to 32 bits *after* each multiply. A packed lane
+cannot: the shifted copy carries its neighbour's bits at the top of the lane,
+and the multiply would drag them across the boundary. So this masks *before*
+the multiply instead. The two agree because
+`(a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m`, and masking first caps the
+widest intermediate at 32 + 31 = 63 bits, which is why a lane is 64 bits wide
+and not the 128 the specification's own order of operations would force.
+
+The wide constants are literals. Building a mask from the recursive
+definition would cost operations at reduction time and the gather is already
+the larger half of the work, so each is related to its packed form by `rfl`,
+which the kernel settles once at compile time and never again while a judged
+case reduces.
+
+No precomputed answers. There is no table of rows, no hardcoded value and no
+input-dependent branch carrying an answer. Every value is computed at
+reduction time from the specification's own seed.
 -/
 
 namespace Submission
 
-/-! ## The packed row -/
+namespace Lane
+
+/-- `n` lanes of width `w`, lane `k` holding `f k`. -/
+def pack (w : Nat) (f : Nat → Nat) : Nat → Nat
+  | 0 => 0
+  | k + 1 => pack w f k + f k * 2 ^ (w * k)
+
+/-- A value below `2 ^ w` has no bits at or above `w`. The core lemma gives
+this only at the index `w` itself. -/
+theorem testBit_eq_false_of_lt_pow {x w i : Nat} (hx : x < 2 ^ w) (hi : w ≤ i) :
+    x.testBit i = false := by
+  have h2 : (2 : Nat) ^ w ≤ 2 ^ i := Nat.pow_le_pow_right (by omega) hi
+  exact Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le hx h2)
+
+/-- `n` lanes of width `w` occupy `w * n` bits. This is what stops a lane
+carrying into its neighbour. -/
+theorem pack_lt (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
+    ∀ n, pack w f n < 2 ^ (w * n) := by
+  intro n
+  induction n with
+  | zero => simp [pack]
+  | succ k ih =>
+    have hstep : w * (k + 1) = w * k + w := Nat.mul_succ w k
+    have hpow : (2 : Nat) ^ (w * k + w) = 2 ^ (w * k) * 2 ^ w := Nat.pow_add 2 _ _
+    have hfk : f k + 1 ≤ 2 ^ w := hf k
+    have hmul : (f k + 1) * 2 ^ (w * k) ≤ 2 ^ w * 2 ^ (w * k) :=
+      Nat.mul_le_mul_right _ hfk
+    have hexp : (f k + 1) * 2 ^ (w * k) = f k * 2 ^ (w * k) + 2 ^ (w * k) :=
+      Nat.succ_mul (f k) (2 ^ (w * k))
+    have hcomm : (2 : Nat) ^ w * 2 ^ (w * k) = 2 ^ (w * k) * 2 ^ w :=
+      Nat.mul_comm _ _
+    rw [pack, hstep, hpow]
+    omega
+
+/-- The lemma everything else rests on: a bit inside lane `i` of the packed
+number is that bit of lane `i`'s value. -/
+theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
+    ∀ n i b, b < w → i < n →
+      (pack w f n).testBit (w * i + b) = (f i).testBit b := by
+  intro n
+  induction n with
+  | zero => intro _ _ _ hin; omega
+  | succ k ih =>
+    intro i b hb hin
+    rcases Nat.lt_or_ge i k with hlt | hge
+    · -- the bit sits in an earlier lane, below everything the new term adds
+      have hlow : w * i + b < w * k := by
+        have h1 : w * (i + 1) ≤ w * k := Nat.mul_le_mul_left w hlt
+        have h2 : w * (i + 1) = w * i + w := Nat.mul_succ w i
+        omega
+      -- `testBit_mod_two_pow` states the masked read, so the new lane is
+      -- removed by taking the sum modulo the top of the earlier lanes
+      have hmod : (pack w f k + f k * 2 ^ (w * k)) % 2 ^ (w * k) = pack w f k := by
+        rw [Nat.add_mul_mod_self_right, Nat.mod_eq_of_lt (pack_lt w f hf k)]
+      have hbit := Nat.testBit_mod_two_pow
+        (pack w f k + f k * 2 ^ (w * k)) (w * k) (w * i + b)
+      have hdec : decide (w * i + b < w * k) = true := by simp [hlow]
+      rw [hmod, hdec, Bool.true_and] at hbit
+      rw [pack, ← hbit]
+      exact ih i b hb hlt
+    · -- the bit sits in the newest lane, and the earlier ones are all below it
+      have hik : i = k := by omega
+      subst hik
+      have hdiv : (pack w f i + f i * 2 ^ (w * i)) / 2 ^ (w * i) = f i := by
+        rw [Nat.add_mul_div_right _ _ (Nat.two_pow_pos (w * i)),
+            Nat.div_eq_of_lt (pack_lt w f hf i), Nat.zero_add]
+      have hshift := Nat.testBit_shiftRight (i := w * i) (j := b)
+        (pack w f i + f i * 2 ^ (w * i))
+      rw [Nat.shiftRight_eq_div_pow, hdiv] at hshift
+      rw [pack]
+      exact hshift.symm
+
+/-! ## The lane algebra
+
+Two shapes of lemma, and the split between them is the whole design.
+
+`*` and `+` mix bits between positions, so they are handled at the level of
+the packing itself, where distributivity does the work and no bound on the
+lanes is needed. `^^^`, `&&&` and `>>>` do not mix bits, so they are handled
+one bit at a time by the core `testBit` lemmas and need nothing new here.
+`testBit_pack` above is the hinge between the two views.
+-/
+
+/-- A scalar multiplies every lane, with no side condition whatever. The
+lanes are a sum precisely so that this is true: `*` distributes over `+`,
+and Core Lean has no lemma that would let it distribute over `|||`. -/
+theorem pack_mul (w : Nat) (f : Nat → Nat) (c : Nat) :
+    ∀ n, pack w f n * c = pack w (fun k => f k * c) n := by
+  intro n
+  induction n with
+  | zero => simp [pack]
+  | succ k ih =>
+    show (pack w f k + f k * 2 ^ (w * k)) * c
+        = pack w (fun j => f j * c) k + f k * c * 2 ^ (w * k)
+    rw [Nat.add_mul, ih, Nat.mul_right_comm]
+
+/-- Two packings add lane by lane, again with no side condition. The sum of
+two lanes may well overflow `2 ^ w`; this says only that the arithmetic is
+faithful, and a bound is reimposed where one is needed. -/
+theorem pack_add (w : Nat) (f g : Nat → Nat) :
+    ∀ n, pack w f n + pack w g n = pack w (fun k => f k + g k) n := by
+  intro n
+  induction n with
+  | zero => simp [pack]
+  | succ k ih =>
+    show pack w f k + f k * 2 ^ (w * k) + (pack w g k + g k * 2 ^ (w * k))
+        = pack w (fun j => f j + g j) k + (f k + g k) * 2 ^ (w * k)
+    rw [← ih, Nat.add_mul]
+    omega
+
+/-- Extensionality in the lane view: two numbers that fit in `n` lanes are
+equal as soon as their lanes agree. This is what turns a value built by
+shifting and masking back into a packing, which is the only way `pack_mul`
+can then be applied to it. -/
+theorem eq_of_lanes {w n x y : Nat} (hw : 0 < w)
+    (hx : x < 2 ^ (w * n)) (hy : y < 2 ^ (w * n))
+    (h : ∀ i b, i < n → b < w →
+      x.testBit (w * i + b) = y.testBit (w * i + b)) :
+    x = y := by
+  apply Nat.eq_of_testBit_eq
+  intro j
+  rcases Nat.lt_or_ge j (w * n) with hj | hj
+  · -- inside the lanes: name the lane and the offset by division
+    have hd : w * (j / w) + j % w = j := Nat.div_add_mod j w
+    have hb : j % w < w := Nat.mod_lt _ hw
+    have hi : j / w < n := by
+      rw [Nat.div_lt_iff_lt_mul hw, Nat.mul_comm]
+      exact hj
+    rw [← hd]
+    exact h _ _ hi hb
+  · -- above the lanes: both sides are zero, by the bound each one carries
+    rw [testBit_eq_false_of_lt_pow hx hj, testBit_eq_false_of_lt_pow hy hj]
+
+/-! ## Masking, xor and shifting, one lane at a time
+
+These three are the whole bit-level toolkit, and between them they cover
+every operation `caMix32` performs and every operation the gather performs.
+Each is proved the same way: `eq_of_lanes` reduces the claim to one bit of
+one lane, `testBit_pack` turns each packing into its lane, and a core
+`testBit` lemma finishes it.
+
+The mask is itself a packing, of the constant `2 ^ m - 1`. That is the point:
+a mask written as one `Nat` literal would not be lane-local, and `% 2 ^ m` on
+the whole packed number would clear every lane but the lowest.
+-/
+
+/-- Masking to `m` bits keeps each lane modulo `2 ^ m`. -/
+theorem pack_and_mask {w m n : Nat} (f : Nat → Nat) (hw : 0 < w) (hm : m ≤ w)
+    (hf : ∀ k, f k < 2 ^ w) :
+    pack w f n &&& pack w (fun _ => 2 ^ m - 1) n
+      = pack w (fun k => f k % 2 ^ m) n := by
+  have hle : (2 : Nat) ^ m ≤ 2 ^ w := Nat.pow_le_pow_right (by omega) hm
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ m - 1 < 2 ^ w := by
+    intro _
+    have := Nat.two_pow_pos m
+    omega
+  have hres : ∀ k, f k % 2 ^ m < 2 ^ w := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
+  refine eq_of_lanes hw
+    (Nat.lt_of_le_of_lt (Nat.and_le_left) (pack_lt w f hf n))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack w f hf n i b hbw hin,
+      testBit_pack w _ hmask n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow]
+  exact Bool.and_comm _ _
+
+/-- Exclusive or acts lane by lane. -/
+theorem pack_xor {w n : Nat} (f g : Nat → Nat) (hw : 0 < w)
+    (hf : ∀ k, f k < 2 ^ w) (hg : ∀ k, g k < 2 ^ w) :
+    pack w f n ^^^ pack w g n = pack w (fun k => f k ^^^ g k) n := by
+  have hres : ∀ k, (f k ^^^ g k) < 2 ^ w := fun k =>
+    Nat.xor_lt_two_pow (hf k) (hg k)
+  refine eq_of_lanes hw
+    (Nat.xor_lt_two_pow (pack_lt w f hf n) (pack_lt w g hg n))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_xor,
+      testBit_pack w f hf n i b hbw hin,
+      testBit_pack w g hg n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_xor]
+
+/-- A right shift of the whole packing, masked back to `m` bits, is a right
+shift inside every lane. The mask is what makes this true rather than nearly
+true: shifting right by `s` drags the bottom `s` bits of lane `k + 1` into
+the top of lane `k`, and `m + s ≤ w` is exactly the condition that the mask
+discards them. -/
+theorem pack_shiftRight_and_mask {w m s n : Nat} (f : Nat → Nat) (hw : 0 < w)
+    (hms : m + s ≤ w) (hf : ∀ k, f k < 2 ^ w) :
+    (pack w f n >>> s) &&& pack w (fun _ => 2 ^ m - 1) n
+      = pack w (fun k => (f k >>> s) % 2 ^ m) n := by
+  have hle : (2 : Nat) ^ m ≤ 2 ^ w := Nat.pow_le_pow_right (by omega) (by omega)
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ m - 1 < 2 ^ w := by
+    intro _
+    have := Nat.two_pow_pos m
+    omega
+  have hres : ∀ k, (f k >>> s) % 2 ^ m < 2 ^ w := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
+  refine eq_of_lanes hw
+    (Nat.lt_of_le_of_lt (Nat.and_le_left)
+      (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ s) (pack_lt w f hf n)))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack w _ hmask n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow,
+      Nat.testBit_shiftRight, Nat.testBit_shiftRight]
+  by_cases hbm : b < m
+  · -- inside the mask, so the shifted bit is a bit of this same lane
+    have hidx : s + (w * i + b) = w * i + (b + s) := by omega
+    have hlt : b + s < w := by omega
+    rw [hidx, testBit_pack w f hf n i (b + s) hlt hin, Nat.add_comm s b]
+    simp [hbm]
+  · -- outside the mask, so both sides are false whatever the bit was
+    simp [hbm]
+
+/-! ## The mixer, one lane at a time
+
+`caMix32` masks to 32 bits *after* each multiply. The packed computation
+cannot: an unmasked lane is 41 bits wide, and 41 bits times a 31-bit constant
+is 72 bits, which still fits a 128-bit lane, but the *shifted* copy carries
+the neighbour lane's bits at the top of the lane and those would be dragged
+across the boundary by the multiply. So the packed form masks *before* the
+multiply as well, and the two agree only because
+`(a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m`.
+
+That identity, and the fact that the extra mask after the shift is a no-op on
+a lane narrow enough, are the entire distance between `caMix32` and what the
+packed arithmetic computes. Both are proved here, scalar, before any packing
+is involved.
+-/
+
+/-- Masking before a multiply and masking after it agree. -/
+theorem mul_mod_pow (a c m : Nat) :
+    (a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m := by
+  rw [Nat.mul_mod, Nat.mod_eq_of_lt (Nat.mod_lt a (Nat.two_pow_pos m)),
+      ← Nat.mul_mod]
+
+/-- Masking after a shift is a no-op when the lane was narrow enough, which
+is the only reason the packed form may insert it. -/
+theorem shiftRight_mod_eq {x s m : Nat} (hx : x < 2 ^ (m + s)) :
+    (x >>> s) % 2 ^ m = x >>> s := by
+  apply Nat.mod_eq_of_lt
+  rw [Nat.shiftRight_eq_div_pow, Nat.div_lt_iff_lt_mul (Nat.two_pow_pos s),
+      ← Nat.pow_add]
+  exact hx
+
+/-- The specification's mask, as a remainder. -/
+theorem and_mask_eq_mod (x m : Nat) : x &&& (2 ^ m - 1) = x % 2 ^ m := by
+  apply Nat.eq_of_testBit_eq
+  intro j
+  rw [Nat.testBit_and, Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow]
+  exact Bool.and_comm _ _
+
+
+/-- One xor-shift-multiply stage with the mask moved in front of the
+multiply, which is what the packed arithmetic can do. -/
+def stage (s c x : Nat) : Nat :=
+  ((x ^^^ ((x >>> s) % 2 ^ 32)) % 2 ^ 32 * c) % 2 ^ 32
+
+/-- The same stage as the specification writes it. -/
+def stageSpec (s c x : Nat) : Nat :=
+  ((x ^^^ (x >>> s)) * c) % 2 ^ 32
+
+theorem stage_lt (s c x : Nat) : stage s c x < 2 ^ 32 :=
+  Nat.mod_lt _ (Nat.two_pow_pos 32)
+
+theorem stage_eq {s c x : Nat} (hx : x < 2 ^ (32 + s)) :
+    stage s c x = stageSpec s c x := by
+  rw [stage, stageSpec, shiftRight_mod_eq hx, mul_mod_pow]
+
+/-- `caMix32` written the way the packed arithmetic computes it. -/
+def mixLane (x : Nat) : Nat :=
+  let d := stage 15 0x846ca68b (stage 16 0x7feb352d x)
+  (d ^^^ ((d >>> 16) % 2 ^ 32)) % 2 ^ 32
+
+/-- The two agree on every lane the initial row can produce. The hypothesis
+is generous: a lane holds `seed + (i + 1) * 0x9e3779b9` with `seed < 2 ^ 32`
+and `i + 1 ≤ 256`, hence less than `2 ^ 41`. -/
+theorem mixLane_eq {x : Nat} (hx : x < 2 ^ 48) : mixLane x = caMix32 x := by
+  have hwiden : ∀ {a j : Nat}, a < 2 ^ 32 → 32 ≤ j → a < 2 ^ j := by
+    intro a j ha hj
+    exact Nat.lt_of_lt_of_le ha (Nat.pow_le_pow_right (by omega) hj)
+  have hb : stage 16 0x7feb352d x < 2 ^ 32 := stage_lt _ _ _
+  have hd : stage 15 0x846ca68b (stage 16 0x7feb352d x) < 2 ^ 32 :=
+    stage_lt _ _ _
+  have hlit : (0xffffffff : Nat) = 2 ^ 32 - 1 := by rfl
+  simp only [mixLane, caMix32]
+  rw [shiftRight_mod_eq (hwiden hd (by omega)),
+      stage_eq (hwiden hb (by omega)),
+      stage_eq (show x < 2 ^ (32 + 16) from hx),
+      stageSpec, stageSpec, hlit,
+      and_mask_eq_mod, and_mask_eq_mod, and_mask_eq_mod]
+
+/-! ## The ramp, and splitting a packing in two
+
+The 256 lane inputs are `seed + (i + 1) * 0x9e3779b9`. Built lane by lane
+that is 256 multiplications and 256 additions. Built as a packing it is two
+multiplications and one addition, against two constants that do not depend on
+the seed, because `pack_mul` and `pack_add` carry no side conditions.
+-/
+
+theorem pack_congr (w : Nat) {f g : Nat → Nat} :
+    ∀ n, (∀ k, k < n → f k = g k) → pack w f n = pack w g n := by
+  intro n
+  induction n with
+  | zero => intro _; rfl
+  | succ k ih =>
+    intro h
+    rw [pack, pack, ih (fun j hj => h j (by omega)), h k (by omega)]
+
+/-- The whole seeded ramp, from two seed-independent constants. -/
+theorem ramp_eq (w n seed c : Nat) :
+    pack w (fun _ => 1) n * seed + pack w (fun i => i + 1) n * c
+      = pack w (fun i => seed + (i + 1) * c) n := by
+  rw [pack_mul, pack_mul, pack_add]
+  exact pack_congr w n (fun k _ => by rw [Nat.one_mul])
+
+/-- A packing splits at any point, the upper part shifted by what the lower
+part occupies. The merge tree is this read backwards. -/
+theorem pack_split (w : Nat) (g : Nat → Nat) (a : Nat) :
+    ∀ b, pack w g (a + b)
+      = pack w g a + pack w (fun t => g (a + t)) b * 2 ^ (w * a) := by
+  intro b
+  induction b with
+  | zero => simp [pack]
+  | succ q ih =>
+    have he : (2 : Nat) ^ (w * (a + q)) = 2 ^ (w * q) * 2 ^ (w * a) := by
+      rw [Nat.mul_add, Nat.add_comm (w * a) (w * q), Nat.pow_add]
+    show pack w g (a + q) + g (a + q) * 2 ^ (w * (a + q))
+        = pack w g a
+          + (pack w (fun t => g (a + t)) q + g (a + q) * 2 ^ (w * q))
+            * 2 ^ (w * a)
+    rw [ih, Nat.add_mul, he, Nat.mul_assoc]
+    omega
+
+/-! ## One round of the gather
+
+A round reads a packing of `2 * m` lanes of width `W`, each holding `h` bits,
+and returns a packing of `m` lanes of width `2 * W`, each holding `2 * h`
+bits: the even lane in the low half, the odd lane above it. Eight rounds take
+256 lanes of one bit each down to a single lane holding all 256, and
+`pack W p 1 = p 0`, so that last lane *is* the answer.
+
+The even and the odd halves are each recovered by one mask, which is bit
+work and needs `eq_of_lanes`. Everything after that is free: `pack_mul`
+raises the odd half into place and `pack_add` joins the two, neither with a
+side condition, so no carry argument appears anywhere in the tree.
+-/
+
+/-- The even lanes, read at double width. -/
+theorem pack_even {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    pack W P (2 * m) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m
+      = pack (2 * W) (fun j => P (2 * j)) m := by
+  have hhW : (2 : Nat) ^ h ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) hh
+  have hPW : ∀ k, P k < 2 ^ W := fun k => Nat.lt_of_lt_of_le (hP k) hhW
+  have hP2 : ∀ k, P k < 2 ^ (2 * W) :=
+    fun k => Nat.lt_of_lt_of_le (hPW k)
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ h - 1 < 2 ^ (2 * W) := by
+    intro _
+    have h1 := Nat.two_pow_pos h
+    have h2 : (2 : Nat) ^ h ≤ 2 ^ (2 * W) :=
+      Nat.pow_le_pow_right (by omega) (by omega)
+    omega
+  have hwm : W * (2 * m) = 2 * W * m := by
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_right_comm,
+        Nat.mul_comm W 2]
+  refine eq_of_lanes (by omega)
+    (Nat.lt_of_le_of_lt Nat.and_le_left
+      (by rw [← hwm]; exact pack_lt W P hPW (2 * m)))
+    (pack_lt (2 * W) _ (fun j => hP2 (2 * j)) m) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack (2 * W) _ hmask m i b hbw hin,
+      testBit_pack (2 * W) _ (fun j => hP2 (2 * j)) m i b hbw hin,
+      Nat.testBit_two_pow_sub_one]
+  by_cases hbh : b < h
+  · have hidx : 2 * W * i + b = W * (2 * i) + b := by
+      rw [Nat.mul_comm 2 W, Nat.mul_assoc]
+    rw [hidx, testBit_pack W P hPW (2 * m) (2 * i) b (by omega) (by omega)]
+    simp [hbh]
+  · rw [testBit_eq_false_of_lt_pow (hP (2 * i)) (by omega)]
+    simp [hbh]
+
+/-- The odd lanes, brought down by one lane width and read at double width. -/
+theorem pack_odd {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    (pack W P (2 * m) >>> W) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m
+      = pack (2 * W) (fun j => P (2 * j + 1)) m := by
+  have hhW : (2 : Nat) ^ h ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) hh
+  have hPW : ∀ k, P k < 2 ^ W := fun k => Nat.lt_of_lt_of_le (hP k) hhW
+  have hP2 : ∀ k, P k < 2 ^ (2 * W) :=
+    fun k => Nat.lt_of_lt_of_le (hPW k)
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ h - 1 < 2 ^ (2 * W) := by
+    intro _
+    have h1 := Nat.two_pow_pos h
+    have h2 : (2 : Nat) ^ h ≤ 2 ^ (2 * W) :=
+      Nat.pow_le_pow_right (by omega) (by omega)
+    omega
+  have hwm : W * (2 * m) = 2 * W * m := by
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_right_comm,
+        Nat.mul_comm W 2]
+  refine eq_of_lanes (by omega)
+    (Nat.lt_of_le_of_lt Nat.and_le_left
+      (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ W)
+        (by rw [← hwm]; exact pack_lt W P hPW (2 * m))))
+    (pack_lt (2 * W) _ (fun j => hP2 (2 * j + 1)) m) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack (2 * W) _ hmask m i b hbw hin,
+      testBit_pack (2 * W) _ (fun j => hP2 (2 * j + 1)) m i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_shiftRight]
+  by_cases hbh : b < h
+  · have hidx : W + (2 * W * i + b) = W * (2 * i + 1) + b := by
+      rw [Nat.mul_add, Nat.mul_one, Nat.mul_comm 2 W, Nat.mul_assoc]
+      omega
+    rw [hidx,
+        testBit_pack W P hPW (2 * m) (2 * i + 1) b (by omega) (by omega)]
+    simp [hbh]
+  · rw [testBit_eq_false_of_lt_pow (hP (2 * i + 1)) (by omega)]
+    simp [hbh]
+
+/-- One round of the gather. The two masks are the only bit work; the shift
+into place and the join are `pack_mul` and `pack_add`, which is why no carry
+argument is needed. -/
+theorem merge_round {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    (pack W P (2 * m) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m)
+      + ((pack W P (2 * m) >>> W)
+          &&& pack (2 * W) (fun _ => 2 ^ h - 1) m) * 2 ^ h
+      = pack (2 * W) (fun j => P (2 * j) + P (2 * j + 1) * 2 ^ h) m := by
+  rw [pack_even P hW hh hP, pack_odd P hW hh hP, pack_mul, pack_add]
+
+
+
+
+/-! ## `encodeRow` is a packing of width one
+
+`encodeRow` folds the row least-significant-bit first, so the number it builds
+is exactly a packing with `w = 1`. Saying so turns the specification's list
+fold into the same object the gather produces, and the whole proof then closes
+inside the lane algebra rather than by reasoning about lists.
+-/
+
+theorem encodeRow_cons (a : Bool) (as : List Bool) :
+    encodeRow (a :: as) = 2 * encodeRow as + (if a then 1 else 0) := rfl
+
+theorem encodeRow_foldr (c : Nat) :
+    ∀ l : List Bool,
+      l.foldr (fun b acc => 2 * acc + (if b then 1 else 0)) c
+        = encodeRow l + 2 ^ l.length * c := by
+  intro l
+  induction l with
+  | nil => simp [encodeRow]
+  | cons a as ih =>
+    have hp : (2 : Nat) ^ (as.length + 1) = 2 ^ as.length * 2 :=
+      Nat.pow_succ 2 as.length
+    have hm : 2 * (2 ^ as.length * c) = 2 ^ as.length * 2 * c := by
+      rw [Nat.mul_left_comm, ← Nat.mul_assoc]
+    show 2 * (as.foldr (fun b acc => 2 * acc + (if b then 1 else 0)) c)
+          + (if a then 1 else 0)
+        = encodeRow (a :: as) + 2 ^ (as.length + 1) * c
+    rw [ih, encodeRow_cons, hp, Nat.mul_add, hm]
+    omega
+
+theorem encodeRow_append (l1 l2 : List Bool) :
+    encodeRow (l1 ++ l2) = encodeRow l1 + 2 ^ l1.length * encodeRow l2 := by
+  rw [encodeRow, List.foldr_append]
+  exact encodeRow_foldr (encodeRow l2) l1
+
+/-- The specification's encoding of a row built by `List.range` and `map` is
+a width-one packing of the same function. -/
+theorem encodeRow_map_range (g : Nat → Bool) :
+    ∀ n, encodeRow ((List.range n).map g)
+      = pack 1 (fun i => if g i then 1 else 0) n := by
+  intro n
+  induction n with
+  | zero => rfl
+  | succ k ih =>
+    have hone : (1 : Nat) * k = k := Nat.one_mul k
+    have hlast : encodeRow (List.map g [k]) = (if g k then 1 else 0) := by
+      simp [encodeRow]
+    rw [List.range_succ, List.map_append, encodeRow_append, ih,
+        List.length_map, List.length_range, hlast]
+    show pack 1 (fun i => if g i then 1 else 0) k
+          + 2 ^ k * (if g k then 1 else 0)
+        = pack 1 (fun i => if g i then 1 else 0) k
+          + (if g k then 1 else 0) * 2 ^ (1 * k)
+    rw [hone, Nat.mul_comm]
+
+/-! ## Reading one bit out of every lane
+
+The row wants bit 31 of each lane. That is `pack_shiftRight_and_mask` at
+`m = 1` and `s = 31`, since `1 + 31 ≤ 64`, and the mask is the all-ones
+packing. What comes back is each lane modulo two, which is the bit.
+-/
+
+theorem mod_two_eq (y : Nat) : y % 2 = if y.testBit 0 then 1 else 0 := by
+  rw [Nat.testBit_zero]
+  by_cases h : y % 2 = 1
+  · rw [h]; simp
+  · have h0 : y % 2 = 0 := by omega
+    rw [h0]; simp
+
+theorem shiftRight_mod_two (x s : Nat) :
+    (x >>> s) % 2 = if x.testBit s then 1 else 0 := by
+  rw [mod_two_eq, Nat.testBit_shiftRight, Nat.add_zero]
+
+/-! ## The payload, and why the merge tree is an induction
+
+Round `r` has gathered the cells in groups of `2 ^ r`, each group packed at
+the bottom of its field. Writing that group as `pack 1 b (2 ^ r)` — a
+width-one packing, the same object `encodeRow` turned out to be — is what
+makes the tree an induction: `pack_split` says a width-one packing of
+`2 ^ (r+1)` cells is its lower half plus its upper half shifted, which is
+exactly what one round produces.
+-/
+
+/-- The cells gathered at round `r`, group `j`. -/
+def payload (b : Nat → Nat) (r j : Nat) : Nat :=
+  pack 1 (fun t => b (2 ^ r * j + t)) (2 ^ r)
+
+theorem payload_lt {b : Nat → Nat} (hb : ∀ k, b k < 2) (r j : Nat) :
+    payload b r j < 2 ^ 2 ^ r := by
+  have h := pack_lt 1 (fun t => b (2 ^ r * j + t)) (fun t => hb _) (2 ^ r)
+  rw [Nat.one_mul] at h
+  exact h
+
+theorem payload_zero (b : Nat → Nat) (j : Nat) : payload b 0 j = b j := by
+  show 0 + b (1 * j + 0) * 2 ^ (1 * 0) = b j
+  rw [Nat.one_mul, Nat.add_zero, Nat.mul_zero, Nat.pow_zero, Nat.mul_one,
+      Nat.zero_add]
+
+theorem payload_succ (b : Nat → Nat) (r j : Nat) :
+    payload b (r + 1) j
+      = payload b r (2 * j) + payload b r (2 * j + 1) * 2 ^ 2 ^ r := by
+  have hsplit : (2 : Nat) ^ (r + 1) = 2 ^ r + 2 ^ r := by
+    rw [Nat.pow_succ]; omega
+  have hlo : ∀ t, b (2 ^ (r + 1) * j + t) = b (2 ^ r * (2 * j) + t) := by
+    intro t
+    have he : (2 : Nat) ^ (r + 1) * j = 2 ^ r * (2 * j) := by
+      rw [Nat.pow_succ, Nat.mul_assoc]
+    rw [he]
+  have hhi : ∀ t, b (2 ^ (r + 1) * j + (2 ^ r + t))
+      = b (2 ^ r * (2 * j + 1) + t) := by
+    intro t
+    have he : (2 : Nat) ^ (r + 1) * j + 2 ^ r = 2 ^ r * (2 * j + 1) := by
+      rw [Nat.mul_add, Nat.mul_one, Nat.pow_succ, Nat.mul_assoc]
+    rw [← Nat.add_assoc, he]
+  -- `hsplit` must not be rewritten in the goal: it would also fire inside the
+  -- function body, turning `2 ^ (r+1) * j` into `(2 ^ r + 2 ^ r) * j` and
+  -- leaving `pack_split` with nothing to match. So the split is established
+  -- on its own, where rewriting both sides at once is harmless.
+  have hs : pack 1 (fun t => b (2 ^ (r + 1) * j + t)) (2 ^ (r + 1))
+      = pack 1 (fun t => b (2 ^ (r + 1) * j + t)) (2 ^ r)
+        + pack 1 (fun t => b (2 ^ (r + 1) * j + (2 ^ r + t))) (2 ^ r)
+          * 2 ^ (1 * 2 ^ r) := by
+    rw [hsplit]
+    exact pack_split 1 _ (2 ^ r) (2 ^ r)
+  simp only [payload]
+  rw [hs, Nat.one_mul,
+      pack_congr 1 (2 ^ r) (fun t _ => hlo t),
+      pack_congr 1 (2 ^ r) (fun t _ => hhi t)]
+
+/-- A packing of one lane is that lane. This is what makes the eighth round
+the answer rather than a step towards it. -/
+theorem pack_one (w : Nat) (f : Nat → Nat) : pack w f 1 = f 0 := by
+  show 0 + f 0 * 2 ^ (w * 0) = f 0
+  rw [Nat.mul_zero, Nat.pow_zero, Nat.mul_one, Nat.zero_add]
+
+/-- After eight rounds the single remaining group is the whole row. -/
+theorem payload_eight (b : Nat → Nat) :
+    payload b 8 0 = pack 1 b 256 := by
+  show pack 1 (fun t => b (256 * 0 + t)) 256 = pack 1 b 256
+  exact pack_congr 1 256 (fun t _ => by rw [Nat.mul_zero, Nat.zero_add])
+
+/-! ## The gather, as one lemma used eight times
+
+`merge_round` is about an arbitrary lane function; `payload_succ` says the
+payload is exactly what one round produces. Putting the two together gives a
+single lemma that advances the round counter, so the eight rounds in the
+submission are eight instantiations of it rather than eight bit arguments.
+-/
+
+theorem gather_round (b : Nat → Nat) (hb : ∀ k, b k < 2) (r m W : Nat)
+    (hW : 0 < W) (hh : 2 ^ r ≤ W) :
+    (pack W (payload b r) (2 * m) &&& pack (2 * W) (fun _ => 2 ^ 2 ^ r - 1) m)
+      + ((pack W (payload b r) (2 * m) >>> W)
+          &&& pack (2 * W) (fun _ => 2 ^ 2 ^ r - 1) m) * 2 ^ 2 ^ r
+      = pack (2 * W) (payload b (r + 1)) m := by
+  rw [merge_round (payload b r) hW hh (payload_lt hb r)]
+  exact pack_congr (2 * W) m (fun j _ => (payload_succ b r j).symm)
+
+/-- The gather starts from the bits themselves. -/
+theorem gather_start (b : Nat → Nat) (W n : Nat) :
+    pack W (payload b 0) n = pack W b n :=
+  pack_congr W n (fun j _ => payload_zero b j)
+
+/-! ## The two fixed cells
+
+The specification fixes cell 0 to true and cell 1 to false, excluding the two
+spatially uniform rows. On the packed row that is one shift, one multiply and
+one addition, because `pack_split` peels the bottom two lanes off a
+width-one packing and the hash never has to be corrected.
+-/
+
+theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
+    (hfg : ∀ t, t < 254 → f (2 + t) = g (2 + t))
+    (hg0 : g 0 = 1) (hg1 : g 1 = 0) :
+    (pack 1 f 256 >>> 2) * 4 + 1 = pack 1 g 256 := by
+  have hpow : (2 : Nat) ^ (1 * 2) = 4 := by rfl
+  have hlow : pack 1 f 2 < 4 := by
+    have h := pack_lt 1 f hf 2
+    rw [hpow] at h
+    exact h
+  have hsf : pack 1 f 256
+      = pack 1 f 2 + pack 1 (fun t => f (2 + t)) 254 * 4 := by
+    have h := pack_split 1 f 2 254
+    rw [hpow] at h
+    exact h
+  have hsg : pack 1 g 256
+      = pack 1 g 2 + pack 1 (fun t => g (2 + t)) 254 * 4 := by
+    have h := pack_split 1 g 2 254
+    rw [hpow] at h
+    exact h
+  have hg2 : pack 1 g 2 = 1 := by
+    show 0 + g 0 * 2 ^ (1 * 0) + g 1 * 2 ^ (1 * 1) = 1
+    rw [hg0, hg1]
+  have hup : pack 1 (fun t => f (2 + t)) 254
+      = pack 1 (fun t => g (2 + t)) 254 :=
+    pack_congr 1 254 (fun t ht => hfg t ht)
+  -- the shift is exact, because the two lanes it drops are below 4
+  have hdiv : pack 1 f 256 >>> 2 = pack 1 (fun t => f (2 + t)) 254 := by
+    rw [Nat.shiftRight_eq_div_pow, hsf]
+    show (pack 1 f 2 + pack 1 (fun t => f (2 + t)) 254 * 4) / 4 = _
+    rw [Nat.add_mul_div_right _ _ (by omega), Nat.div_eq_of_lt hlow,
+        Nat.zero_add]
+  rw [hdiv, hsg, hg2, hup]
+  omega
+
+/-! ## A whole mixer stage in one step
+
+Each of `caMix32`'s stages is a shift, a mask, an exclusive or, a mask, a
+multiply and a mask. Taken together they are one lane-wise application of
+`stage`, and bundling them here keeps the assembly below short enough to
+read. The width is 64 and the live field 32 bits, as the design fixes them:
+`32 + s ≤ 64` is what lets the mask discard the neighbour's bits, and
+`c < 2 ^ 32` is what keeps the product inside its own lane.
+-/
+
+theorem pack_xorshift {s n : Nat} (f : Nat → Nat) (hs : 32 + s ≤ 64)
+    (hf : ∀ k, f k < 2 ^ 64) :
+    (pack 64 f n ^^^ ((pack 64 f n >>> s) &&& pack 64 (fun _ => 2 ^ 32 - 1) n))
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n
+      = pack 64 (fun k => (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32) n := by
+  have h32 : (2 : Nat) ^ 32 ≤ 2 ^ 64 :=
+    Nat.pow_le_pow_right (by omega) (by omega)
+  have hsh : ∀ k, (f k >>> s) % 2 ^ 32 < 2 ^ 64 := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos 32)) h32
+  have hxo : ∀ k, (f k ^^^ ((f k >>> s) % 2 ^ 32)) < 2 ^ 64 := fun k =>
+    Nat.xor_lt_two_pow (hf k) (hsh k)
+  rw [pack_shiftRight_and_mask f (by omega) hs hf,
+      pack_xor f _ (by omega) hf hsh,
+      pack_and_mask _ (by omega) (by omega) hxo]
+
+theorem pack_stage {s c n : Nat} (f : Nat → Nat) (hs : 32 + s ≤ 64)
+    (hc : c < 2 ^ 32) (hf : ∀ k, f k < 2 ^ 64) :
+    (((pack 64 f n
+          ^^^ ((pack 64 f n >>> s) &&& pack 64 (fun _ => 2 ^ 32 - 1) n))
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n) * c)
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n
+      = pack 64 (fun k => stage s c (f k)) n := by
+  have hpr : ∀ k,
+      (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32 * c < 2 ^ 64 := by
+    intro k
+    have h1 : (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32 ≤ 2 ^ 32 - 1 := by
+      have := Nat.mod_lt (f k ^^^ ((f k >>> s) % 2 ^ 32)) (Nat.two_pow_pos 32)
+      omega
+    have h2 : c ≤ 2 ^ 32 - 1 := by omega
+    have h3 := Nat.mul_le_mul h1 h2
+    have h4 : (2 ^ 32 - 1) * (2 ^ 32 - 1) < 2 ^ 64 := by decide
+    omega
+  rw [pack_xorshift f hs hf, pack_mul,
+      pack_and_mask _ (by omega) (by omega) hpr]
+  exact pack_congr 64 n (fun k _ => rfl)
+
+end Lane
+
+/-! ## Assembling the row
+
+The constants are literals, because building a mask from the recursive
+definition would cost operations at reduction time and the gather is
+already the larger half of the work. Each is related to its packed form
+by rfl, which the kernel settles once, at compile time, and never again
+while a judged case reduces.
+-/
+
+namespace Row
+
+-- Checking a constant against its packing unfolds the packing once per
+-- lane, and the last gather mask holds 128 bits. Both limits below are
+-- on checking a constant, not on the kernel reducing it.
+set_option maxRecDepth 1000000
+set_option exponentiation.threshold 100000
+
+def onesP : Nat := 0x1000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001000000000000000100000000000000010000000000000001
+
+def rampP : Nat := 0x10000000000000000ff00000000000000fe00000000000000fd00000000000000fc00000000000000fb00000000000000fa00000000000000f900000000000000f800000000000000f700000000000000f600000000000000f500000000000000f400000000000000f300000000000000f200000000000000f100000000000000f000000000000000ef00000000000000ee00000000000000ed00000000000000ec00000000000000eb00000000000000ea00000000000000e900000000000000e800000000000000e700000000000000e600000000000000e500000000000000e400000000000000e300000000000000e200000000000000e100000000000000e000000000000000df00000000000000de00000000000000dd00000000000000dc00000000000000db00000000000000da00000000000000d900000000000000d800000000000000d700000000000000d600000000000000d500000000000000d400000000000000d300000000000000d200000000000000d100000000000000d000000000000000cf00000000000000ce00000000000000cd00000000000000cc00000000000000cb00000000000000ca00000000000000c900000000000000c800000000000000c700000000000000c600000000000000c500000000000000c400000000000000c300000000000000c200000000000000c100000000000000c000000000000000bf00000000000000be00000000000000bd00000000000000bc00000000000000bb00000000000000ba00000000000000b900000000000000b800000000000000b700000000000000b600000000000000b500000000000000b400000000000000b300000000000000b200000000000000b100000000000000b000000000000000af00000000000000ae00000000000000ad00000000000000ac00000000000000ab00000000000000aa00000000000000a900000000000000a800000000000000a700000000000000a600000000000000a500000000000000a400000000000000a300000000000000a200000000000000a100000000000000a0000000000000009f000000000000009e000000000000009d000000000000009c000000000000009b000000000000009a0000000000000099000000000000009800000000000000970000000000000096000000000000009500000000000000940000000000000093000000000000009200000000000000910000000000000090000000000000008f000000000000008e000000000000008d000000000000008c000000000000008b000000000000008a0000000000000089000000000000008800000000000000870000000000000086000000000000008500000000000000840000000000000083000000000000008200000000000000810000000000000080000000000000007f000000000000007e000000000000007d000000000000007c000000000000007b000000000000007a0000000000000079000000000000007800000000000000770000000000000076000000000000007500000000000000740000000000000073000000000000007200000000000000710000000000000070000000000000006f000000000000006e000000000000006d000000000000006c000000000000006b000000000000006a0000000000000069000000000000006800000000000000670000000000000066000000000000006500000000000000640000000000000063000000000000006200000000000000610000000000000060000000000000005f000000000000005e000000000000005d000000000000005c000000000000005b000000000000005a0000000000000059000000000000005800000000000000570000000000000056000000000000005500000000000000540000000000000053000000000000005200000000000000510000000000000050000000000000004f000000000000004e000000000000004d000000000000004c000000000000004b000000000000004a0000000000000049000000000000004800000000000000470000000000000046000000000000004500000000000000440000000000000043000000000000004200000000000000410000000000000040000000000000003f000000000000003e000000000000003d000000000000003c000000000000003b000000000000003a0000000000000039000000000000003800000000000000370000000000000036000000000000003500000000000000340000000000000033000000000000003200000000000000310000000000000030000000000000002f000000000000002e000000000000002d000000000000002c000000000000002b000000000000002a0000000000000029000000000000002800000000000000270000000000000026000000000000002500000000000000240000000000000023000000000000002200000000000000210000000000000020000000000000001f000000000000001e000000000000001d000000000000001c000000000000001b000000000000001a0000000000000019000000000000001800000000000000170000000000000016000000000000001500000000000000140000000000000013000000000000001200000000000000110000000000000010000000000000000f000000000000000e000000000000000d000000000000000c000000000000000b000000000000000a000000000000000900000000000000080000000000000007000000000000000600000000000000050000000000000004000000000000000300000000000000020000000000000001
+
+def maskP : Nat := 0xffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff00000000ffffffff
+
+def gmask0 : Nat := 0x100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001
+
+def gmask1 : Nat := 0x3000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000003
+
+def gmask2 : Nat := 0xf0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f
+
+def gmask3 : Nat := 0xff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff
+
+def gmask4 : Nat := 0xffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff
+
+def gmask5 : Nat := 0xffffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff
+
+def gmask6 : Nat := 0xffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffff
+
+def gmask7 : Nat := 0xffffffffffffffffffffffffffffffff
+
+theorem onesP_eq : onesP = Lane.pack 64 (fun _ => 1) 256 := by rfl
+
+theorem onesP_eq' : onesP = Lane.pack 64 (fun _ => 2 ^ 1 - 1) 256 := by
+  rfl
+
+theorem rampP_eq : rampP = Lane.pack 64 (fun i => i + 1) 256 := by rfl
+
+theorem maskP_eq :
+    maskP = Lane.pack 64 (fun _ => 2 ^ 32 - 1) 256 := by rfl
+
+theorem gmask0_eq : gmask0
+    = Lane.pack 128 (fun _ => 2 ^ 2 ^ 0 - 1) 128 := by rfl
+
+theorem gmask1_eq : gmask1
+    = Lane.pack 256 (fun _ => 2 ^ 2 ^ 1 - 1) 64 := by rfl
+
+theorem gmask2_eq : gmask2
+    = Lane.pack 512 (fun _ => 2 ^ 2 ^ 2 - 1) 32 := by rfl
+
+theorem gmask3_eq : gmask3
+    = Lane.pack 1024 (fun _ => 2 ^ 2 ^ 3 - 1) 16 := by rfl
+
+theorem gmask4_eq : gmask4
+    = Lane.pack 2048 (fun _ => 2 ^ 2 ^ 4 - 1) 8 := by rfl
+
+theorem gmask5_eq : gmask5
+    = Lane.pack 4096 (fun _ => 2 ^ 2 ^ 5 - 1) 4 := by rfl
+
+theorem gmask6_eq : gmask6
+    = Lane.pack 8192 (fun _ => 2 ^ 2 ^ 6 - 1) 2 := by rfl
+
+theorem gmask7_eq : gmask7
+    = Lane.pack 16384 (fun _ => 2 ^ 2 ^ 7 - 1) 1 := by rfl
+
+/-- The ramp lane, zero above the row. The packing reads only the first
+256 lanes, so this agrees with seed + (i+1) * 0x9e3779b9 everywhere it
+is read. Being bounded at *every* index is what matters: the lane
+lemmas ask for a bound at every index, and the ramp itself has none. -/
+def rampLane (seed i : Nat) : Nat :=
+  if i < 256 then seed + (i + 1) * 2654435769 else 0
+
+theorem rampLane_lt {seed : Nat} (hs : seed < 2 ^ 32) (i : Nat) :
+    rampLane seed i < 2 ^ 41 := by
+  have h41 : (2 : Nat) ^ 41 = 2199023255552 := by rfl
+  have h32 : (2 : Nat) ^ 32 = 4294967296 := by rfl
+  rw [rampLane]
+  split
+  · rename_i h
+    have hb : (i + 1) * 2654435769 <= 256 * 2654435769 :=
+      Nat.mul_le_mul_right _ (by omega)
+    omega
+  · omega
+
+theorem rampLane_lt64 {seed : Nat} (hs : seed < 2 ^ 32) :
+    ∀ k, rampLane seed k < 2 ^ 64 := fun k =>
+  Nat.lt_of_lt_of_le (rampLane_lt hs k)
+    (Nat.pow_le_pow_right (by omega) (by omega))
+
+/-- The whole seeded ramp, from two seed-independent constants: two
+multiplications and one addition in place of 256 of each. -/
+theorem ramp_packed (seed : Nat) :
+    onesP * seed + rampP * 2654435769
+      = Lane.pack 64 (rampLane seed) 256 := by
+  rw [onesP_eq, rampP_eq, Lane.ramp_eq]
+  refine Lane.pack_congr 64 256 (fun k hk => ?_)
+  rw [rampLane, if_pos hk]
+
+/-! ## The mixer
+
+One stage of the specification's hash, masked before the multiply
+rather than after, and the final exclusive or, which has no multiply.
+Naming them is what keeps the proof to three rewrites.
+-/
+
+def stageP (s c x : Nat) : Nat :=
+  (((x ^^^ ((x >>> s) &&& maskP)) &&& maskP) * c) &&& maskP
+
+def xorshiftP (s x : Nat) : Nat :=
+  (x ^^^ ((x >>> s) &&& maskP)) &&& maskP
+
+theorem stageP_pack {s c : Nat} (f : Nat → Nat) (hs : 32 + s ≤ 64)
+    (hc : c < 2 ^ 32) (hf : ∀ k, f k < 2 ^ 64) :
+    stageP s c (Lane.pack 64 f 256)
+      = Lane.pack 64 (fun k => Lane.stage s c (f k)) 256 := by
+  rw [stageP, maskP_eq, Lane.pack_stage f hs hc hf]
+
+theorem xorshiftP_pack (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ 64) :
+    xorshiftP 16 (Lane.pack 64 f 256)
+      = Lane.pack 64
+          (fun k => (f k ^^^ ((f k >>> 16) % 2 ^ 32)) % 2 ^ 32)
+          256 := by
+  rw [xorshiftP, maskP_eq, Lane.pack_xorshift f (by omega) hf]
+
+/-- The whole hash, on all 256 cells at once. -/
+theorem mix_packed {seed : Nat} (hs : seed < 2 ^ 32) :
+    xorshiftP 16 (stageP 15 2221713035 (stageP 16 2146121005
+        (Lane.pack 64 (rampLane seed) 256)))
+      = Lane.pack 64 (fun k => Lane.mixLane (rampLane seed k)) 256 := by
+  have hwide : ∀ a : Nat, a < 2 ^ 32 → a < 2 ^ 64 := fun a ha =>
+    Nat.lt_of_lt_of_le ha (Nat.pow_le_pow_right (by omega) (by omega))
+  have hs1 : ∀ k, Lane.stage 16 2146121005 (rampLane seed k) < 2 ^ 64 :=
+    fun k => hwide _ (Lane.stage_lt _ _ _)
+  have hs2 : ∀ k, Lane.stage 15 2221713035
+      (Lane.stage 16 2146121005 (rampLane seed k)) < 2 ^ 64 :=
+    fun k => hwide _ (Lane.stage_lt _ _ _)
+  rw [stageP_pack (rampLane seed) (by omega) (by decide)
+        (rampLane_lt64 hs),
+      stageP_pack _ (by omega) (by decide) hs1,
+      xorshiftP_pack _ hs2]
+  exact Lane.pack_congr 64 256 (fun k _ => rfl)
+
+/-! ## The gather -/
+
+/-- Eight rounds, each one mask, one shift, one mask, one multiply and
+one addition. -/
+def gatherOf (b : Nat) : Nat :=
+  let b := (b &&& gmask0) + (((b >>> 64) &&& gmask0) * 0x2)
+  let b := (b &&& gmask1) + (((b >>> 128) &&& gmask1) * 0x4)
+  let b := (b &&& gmask2) + (((b >>> 256) &&& gmask2) * 0x10)
+  let b := (b &&& gmask3) + (((b >>> 512) &&& gmask3) * 0x100)
+  let b := (b &&& gmask4) + (((b >>> 1024) &&& gmask4) * 0x10000)
+  let b := (b &&& gmask5) + (((b >>> 2048) &&& gmask5) * 0x100000000)
+  let b := (b &&& gmask6) + (((b >>> 4096) &&& gmask6) * 0x10000000000000000)
+  let b := (b &&& gmask7) + (((b >>> 8192) &&& gmask7) * 0x100000000000000000000000000000000)
+  b
+
+theorem round0 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 64 (Lane.payload b 0) 256) :
+    (z &&& gmask0) + (((z >>> 64) &&& gmask0) * 0x2)
+      = Lane.pack 128 (Lane.payload b 1) 128 := by
+  subst hz
+  rw [gmask0_eq]
+  exact Lane.gather_round b hb 0 128 64
+    (by omega) (by omega)
+
+theorem round1 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 128 (Lane.payload b 1) 128) :
+    (z &&& gmask1) + (((z >>> 128) &&& gmask1) * 0x4)
+      = Lane.pack 256 (Lane.payload b 2) 64 := by
+  subst hz
+  rw [gmask1_eq]
+  exact Lane.gather_round b hb 1 64 128
+    (by omega) (by omega)
+
+theorem round2 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 256 (Lane.payload b 2) 64) :
+    (z &&& gmask2) + (((z >>> 256) &&& gmask2) * 0x10)
+      = Lane.pack 512 (Lane.payload b 3) 32 := by
+  subst hz
+  rw [gmask2_eq]
+  exact Lane.gather_round b hb 2 32 256
+    (by omega) (by omega)
+
+theorem round3 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 512 (Lane.payload b 3) 32) :
+    (z &&& gmask3) + (((z >>> 512) &&& gmask3) * 0x100)
+      = Lane.pack 1024 (Lane.payload b 4) 16 := by
+  subst hz
+  rw [gmask3_eq]
+  exact Lane.gather_round b hb 3 16 512
+    (by omega) (by omega)
+
+theorem round4 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 1024 (Lane.payload b 4) 16) :
+    (z &&& gmask4) + (((z >>> 1024) &&& gmask4) * 0x10000)
+      = Lane.pack 2048 (Lane.payload b 5) 8 := by
+  subst hz
+  rw [gmask4_eq]
+  exact Lane.gather_round b hb 4 8 1024
+    (by omega) (by omega)
+
+theorem round5 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 2048 (Lane.payload b 5) 8) :
+    (z &&& gmask5) + (((z >>> 2048) &&& gmask5) * 0x100000000)
+      = Lane.pack 4096 (Lane.payload b 6) 4 := by
+  subst hz
+  rw [gmask5_eq]
+  exact Lane.gather_round b hb 5 4 2048
+    (by omega) (by omega)
+
+theorem round6 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 4096 (Lane.payload b 6) 4) :
+    (z &&& gmask6) + (((z >>> 4096) &&& gmask6) * 0x10000000000000000)
+      = Lane.pack 8192 (Lane.payload b 7) 2 := by
+  subst hz
+  rw [gmask6_eq]
+  exact Lane.gather_round b hb 6 2 4096
+    (by omega) (by omega)
+
+theorem round7 (b : Nat → Nat) (hb : ∀ k, b k < 2) (z : Nat)
+    (hz : z = Lane.pack 8192 (Lane.payload b 7) 2) :
+    (z &&& gmask7) + (((z >>> 8192) &&& gmask7) * 0x100000000000000000000000000000000)
+      = Lane.pack 16384 (Lane.payload b 8) 1 := by
+  subst hz
+  rw [gmask7_eq]
+  exact Lane.gather_round b hb 7 1 8192
+    (by omega) (by omega)
+
+/-- Eight rounds take 256 lanes of one bit each down to one lane holding
+the whole row, and a packing of one lane is that lane.
+
+Each round after the first is instantiated at the previous round's
+*result* and discharged by rfl, not at the previous round's expression.
+Instantiating it at the expression would state the round in terms of a
+term the preceding rewrite has already replaced, and the rewrite would
+then find nothing to match. -/
+theorem gatherOf_eq (b : Nat → Nat) (hb : ∀ k, b k < 2) :
+    gatherOf (Lane.pack 64 b 256) = Lane.pack 1 b 256 := by
+  have h0 := round0 b hb _ (Lane.gather_start b 64 256).symm
+  have h1 := round1 b hb _ rfl
+  have h2 := round2 b hb _ rfl
+  have h3 := round3 b hb _ rfl
+  have h4 := round4 b hb _ rfl
+  have h5 := round5 b hb _ rfl
+  have h6 := round6 b hb _ rfl
+  have h7 := round7 b hb _ rfl
+  simp only [gatherOf]
+  rw [h0, h1, h2, h3, h4, h5, h6, h7, Lane.pack_one]
+  exact Lane.payload_eight b
+
+/-! ## The row -/
+
+/-- The initial row, all 256 cells at once. -/
+def packedRow (seed : Nat) : Nat :=
+  let x := onesP * seed + rampP * 2654435769
+  let x := stageP 16 2146121005 x
+  let x := stageP 15 2221713035 x
+  let x := xorshiftP 16 x
+  (gatherOf ((x >>> 31) &&& onesP) >>> 2) * 4 + 1
+
+/-- The bit the hash puts in cell i. -/
+def bitOf (seed i : Nat) : Nat :=
+  if (Lane.mixLane (rampLane seed i)).testBit 31 then 1 else 0
+
+theorem bitOf_def (seed k : Nat) :
+    bitOf seed k
+      = if (Lane.mixLane (rampLane seed k)).testBit 31 then 1 else 0 :=
+  rfl
+
+theorem bitOf_lt (seed : Nat) : ∀ k, bitOf seed k < 2 := by
+  intro k
+  rw [bitOf]
+  split <;> omega
+
+/-- The specification's own bit for cell i. -/
+def specBit (seed i : Nat) : Nat :=
+  if (if i = 0 then true else if i = 1 then false
+      else (caMix32 (seed + (i + 1) * 2654435769)).testBit 31)
+    then 1 else 0
+
+theorem specBit_zero (seed : Nat) : specBit seed 0 = 1 := by rfl
+
+theorem specBit_one (seed : Nat) : specBit seed 1 = 0 := by rfl
+
+/-- Below the row the two agree, which is all the fix-up reads. It is
+only below the row that they can: above it the ramp lane is zero and
+the specification's hash is not. -/
+theorem bitOf_eq_specBit {seed : Nat} (hs : seed < 2 ^ 32) :
+    ∀ t, t < 254 → bitOf seed (2 + t) = specBit seed (2 + t) := by
+  intro t ht
+  have hlt : 2 + t < 256 := by omega
+  have hne1 : ¬ (2 + t = 1) := by omega
+  have h48 : rampLane seed (2 + t) < 2 ^ 48 :=
+    Nat.lt_of_lt_of_le (rampLane_lt hs _)
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  have hr : rampLane seed (2 + t) = seed + (2 + t + 1) * 2654435769 := by
+    rw [rampLane, if_pos hlt]
+  rw [bitOf, specBit, Lane.mixLane_eq h48, hr]
+  simp [hne1]
+
+/-- The row the packed arithmetic builds is the row the specification
+encodes. -/
+theorem packedRow_eq {seed : Nat} (hs : seed < 2 ^ 32) :
+    packedRow seed = encodeRow (initRowFor seed) := by
+  have hspec : encodeRow (initRowFor seed)
+      = Lane.pack 1 (specBit seed) 256 := by
+    rw [initRowFor, Lane.encodeRow_map_range]
+    exact Lane.pack_congr 1 256 (fun i _ => rfl)
+  have hmx : ∀ k, Lane.mixLane (rampLane seed k) < 2 ^ 64 := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos 32))
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  simp only [packedRow]
+  rw [hspec, ramp_packed, mix_packed hs, onesP_eq',
+      Lane.pack_shiftRight_and_mask _ (by omega) (by omega) hmx,
+      Lane.pack_congr 64 256 (fun k _ =>
+        (Lane.shiftRight_mod_two
+            (Lane.mixLane (rampLane seed k)) 31).trans
+          (bitOf_def seed k).symm),
+      gatherOf_eq _ (bitOf_lt seed),
+      Lane.fix_two (bitOf_lt seed) (bitOf_eq_specBit hs)
+        (specBit_zero seed) (specBit_one seed)]
+
+end Row
+
+/-! ## The packed step, carried over unchanged -/
 
 /-- All 256 low bits set: the width the specification fixes. -/
 def rowMask : Nat := (1 <<< ruleWidth) - 1
@@ -54,7 +1110,7 @@ def pIter : Nat → Nat → Nat
 /-! ## The implementation -/
 
 def impl (n : Nat) : Nat :=
-  pIter (caSteps n) (encodeRow (initRowFor (caSeed n)))
+  pIter (caSteps n) (Row.packedRow (caSeed n))
 
 /-! ## The Rule 110 table as a formula -/
 
@@ -285,10 +1341,17 @@ theorem length_initRowFor (seed : Nat) :
     (initRowFor seed).length = ruleWidth := by
   simp [initRowFor]
 
+/-- The seed is the low 32 bits of the input, which is the bound the lane
+widths were chosen against. -/
+theorem caSeed_lt (n : Nat) : caSeed n < 2 ^ 32 := by
+  rw [caSeed]
+  exact Nat.and_lt_two_pow _ (by decide)
+
 theorem impl_correct : ∀ n, impl n = caSpecN n := by
   intro n
-  show pIter (caSteps n) (encodeRow (initRowFor (caSeed n)))
+  show pIter (caSteps n) (Row.packedRow (caSeed n))
       = encodeRow (iterRow (caSteps n) (initRowFor (caSeed n)))
+  rw [Row.packedRow_eq (caSeed_lt n)]
   exact pIter_encodeRow _ _ (length_initRowFor _)
 
 end Submission
