@@ -83,12 +83,21 @@ Measured by differencing pairs of loops that differ by one operation:
 
 | operation | kernel instructions each |
 | :--- | ---: |
+| one step of a fuel recursion, no arithmetic at all | ~109,000 |
 | one `Nat` operation, 64-bit | ~24,000 |
 | one `Int` operation, 64-bit | ~132,000 |
-| one `Int` operation, 3,484-bit | ~209,000 |
-| one `Int` operation, 20,000-bit | ~537,000 |
-| one `Int` operation, 80,000-bit | ~2,900,000 |
+| one `Int` operation, 3,484-bit | ~155,000 |
+| one `Int` operation, 20,000-bit | ~483,000 |
+| one `Int` operation, 80,000-bit | ~2,860,000 |
 | one list cell: match, cons and an `Int` add | ~15,000 |
+
+Read that table carefully, because it is where "width is free" has a limit.
+From 64 bits to 3,484 bits — 54x the width — an `Int` operation costs **1.17x**
+more. From 3,484 to 80,000 bits — 23x the width — it costs **18x** more. So
+width is genuinely free up to a few thousand bits and roughly linear above
+twenty thousand. The judged cases still come out at a ratio of 1.60 because the
+operations on the widest intermediates are the few late subresultant steps,
+where the polynomial has only two or three coefficients left.
 
 **An `Int` operation costs 5.4x a `Nat` operation of the same width**, because
 `Int` is an inductive type with two constructors and every operation is a case
@@ -179,10 +188,45 @@ it were considered and all fail:
   but using it means changing the base each step, which again costs the `O(L)`
   repacking.
 
-Proof cost is unranked and the leaders on other problems in this competition
-spend tens of billions of units on it, so a Hadamard bound in core Lean is
-where the podium on this problem lives. It is a formalisation project, not an
-afternoon.
+The third of those is the one to pursue, and it is better than it looks. The
+bound at step `i + 1` is
+
+    M' = (|A| + |B| + |C|) * max(Mf, Mg) / f0^2
+
+computed from the leading coefficients actually in hand, which is about six
+`Nat` operations **per step**, not per coefficient. Because `A`, `B` and `C`
+are the real values and the division really is exact, the bound does not
+compound: it loses about `k` bits of slack per step, so over 23 steps it is
+within a factor of two of the true coefficient size. That is enough to fix a
+base for the whole run and never repack. **No Hadamard argument is needed**,
+which is the opposite of what the first pass through this reasoning concluded.
+
+What it would be worth, from `predict.py --packed`, priced at the measured
+250,000 instructions per operation and GMP's `N * S^0.585` for an unbalanced
+product:
+
+| design | predicted total | against the board |
+| :--- | ---: | ---: |
+| loop packed, bound propagated from the data | 3,678,419,868 | 2.8x |
+| loop packed, bound tight to the coefficient size | 3,189,958,752 | 3.2x |
+| loop packed **and** the generator advanced by doubling jumps | **1,581,419,868** | **6.5x** |
+
+The ordering in that table is the useful part. Packing the loop alone is worth
+2.8x and stops there, because once the loop is cheap the **coefficient setup
+becomes the bottleneck**: 4,435 operations at the hardest size, which at
+250,000 each is 1.1 billion of the 1.59 billion that remains. So the setup is
+the right second target and the wrong first one. Cutting it means advancing the
+generator by doubling jumps — composing the LCG's `(A, C)` jump parameters and
+stepping every packed lane at once — which replaces 697 sequential states with
+about ten doublings, and needs `Nat.land` against a lane mask, measured above
+at one operation.
+
+Both together predict 1.58 billion, which is rank 10 or 11 on the published
+board. Rank 3 at 1,119,039,536 needs the tight bound as well. All of it is one
+formalisation project of perhaps thirty elementary lemmas — balanced-digit
+recovery, `Int.natAbs` monotonicity, the evaluation homomorphism — written
+against 45-minute CI rounds with no local toolchain. It is days of work, not an
+afternoon, and it is the only route measured here that reaches the leaders.
 
 ## What this entry changes
 
@@ -225,8 +269,44 @@ starter and candidate on the same runner in the same job.
 
 | change | operations saved per case | priced at |
 | :--- | ---: | ---: |
-| fuse the two cancellation passes | 2 of 9 `Int` ops per coefficient | ~1.14x overall; the fused form's three products are all at the wider operand size, so it pays back only where width is free |
+| fuse the two cancellation passes | 2 of 9 `Int` ops per coefficient | ~1.2x overall, and `fused.py` verifies the algebra; the proof is the expensive part, see below |
 | carry the list lengths instead of recomputing them | ~2,700 list cells | ~3% |
 | `derivHL` without its quadratic `getD` walk | 276 list cells | ~0.2% |
 | replace the setup's powers of two with multiplications | **negative**, adds ~1,600 operations | discarded, see above |
 | a hand-rolled sign-magnitude `Int` | — | the measured 5.4x `Int` penalty is the cost of a constructor case analysis, which any signed representation also pays |
+
+### The fused step, if someone wants the 1.2x
+
+`fused.py` composes the two cancellation passes into
+
+    u[i] = A*f[i+1] - B*g[i+1] - C*g[i],
+    A = g0^2,  B = g0*f0,  C = g0*f[1] - f0*g[1]
+
+and checks it against the specification's own route on all six judged
+difficulties: **138 steps, all agreeing, all six discriminants correct**, and
+the guard refuses rather than answers on a polynomial built to drop a degree.
+Seven `Int` operations per output coefficient instead of nine, and the
+multiplication by one disappears with them.
+
+The algebra is therefore settled and the cost is the proof. It needs the step
+to be guarded at runtime on five conditions, each one comparison — `f0 != 0`,
+`g0 != 0`, `f.length == g.length + 1`, `C != 0`, and the result's own leading
+coefficient nonzero — with anything else falling back to
+`normalResultantGo` itself, so only the successful path has to be proved. That
+path needs about eight lemmas:
+
+1. `(cancelPseudoLeading a b cs ds).length = cs.length`
+2. `trimLeading (c :: cs) = c :: cs` when `c != 0`
+3. the two-pass composition identity, by induction on the two lists
+4. `scalePolynomial 1 x = x` (already written, in `Candidate.lean`)
+5. `exactDividePolynomial` agreeing with a quotient computed and checked by
+   multiplying back (already written, in `Candidate.lean`)
+6. three unfoldings of `pseudoRemainderGo` with the length tests resolved from
+   the guard
+7. the length of the fused output, for the `remainder.length + 1 == g.length`
+   test
+8. the fuel induction tying the fast loop to the specification's
+
+Three to five CI rounds at the current turnaround. Worth it only after the
+packed route above has been judged too expensive, because the packed route is
+worth 6.5x for perhaps four times the work.
