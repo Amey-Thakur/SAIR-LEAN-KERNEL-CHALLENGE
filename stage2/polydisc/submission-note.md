@@ -108,27 +108,52 @@ where the polynomial has only two or three coefficients left.
 
 **An `Int` operation costs 5.4x a `Nat` operation of the same width**, because
 `Int` is an inductive type with two constructors and every operation is a case
-analysis before it is arithmetic. A list recursion is flat in the list's
-length: 2,304 elements cost the same whether the list is 24, 48 or 96 long, so
-the kernel's structural recursion is not quadratic here.
+analysis before it is arithmetic. Two further measurements of the same effect:
 
-## Which half of `costmodel.py` to cut, and why it is not the setup
+* a negative accumulator costs **1.48x** a positive one for identical
+  arithmetic at 3,484 bits (429,519,156 against 289,863,222 for 500 steps),
+  because the `negSucc` side goes through `negOfNat` and `subNatNat`. Half the
+  coefficients in this problem are negative.
+* **multiplying an 80,000-bit number by one costs 170,162 instructions** — the
+  constructor analysis and nothing else, against 2,860,000 for a real
+  multiplication at that width (90,089,227 against the control's 56,056,802
+  over 200 steps). So the specification's 276 multiplications by one per case
+  are worth about 2% and no more: GMP copies, it does not multiply.
+
+A list recursion is flat in the list's length: 2,304 elements cost the same
+whether the list is 24, 48 or 96 long, so the kernel's structural recursion is
+not quadratic here.
+
+## Which half of `costmodel.py` to cut: measured, not inferred
 
 `costmodel.py` puts 55% of the operations at the hardest size in the
-coefficient setup. That is true and it is still the wrong half to cut, for two
-measured reasons.
+coefficient setup and 95% of the bit-work in the subresultant loop. Operation
+count is the currency, so the operation split is the relevant one — and it
+still points at the wrong half, because the setup's operations are narrow `Nat`
+operations and the loop's are `Int` operations, which cost 5.4x more each.
 
-1. The setup's operations are narrow `Nat` operations at ~24,000 each; the
-   loop's are `Int` operations at 209,000 and up. About 4,300 setup operations
-   price at roughly 1x10^8, which is **4%** of the hardest case.
-2. The easiest judged case has a setup 15x smaller than the hardest — 290
-   operations against 4,300 — and still costs **62%** of it. What the two
-   cases share is the subresultant loop, whose operation count does not depend
-   on the coefficient width at all. If the setup were the cost, the easy cases
-   would be nearly free. They are not.
+That argument was settled by measuring the two parts separately rather than
+reasoning about them. Each file asserts a small residue, so the figure is the
+computation and not the comparison of a 24,000-figure literal: `polyOf n`
+summed, the loop run on a polynomial supplied as a literal so that it performs
+no setup at all, and the specification end to end.
 
-So the target is **`Int` operations inside the subresultant loop**, which is
-about 4,700 operations in every judged case regardless of difficulty.
+| | setup alone | loop alone | whole | setup's share |
+| :--- | ---: | ---: | ---: | ---: |
+| k = 15 | 67,284,224 | 1,429,655,763 | 1,485,178,304 | **4.5%** |
+| k = 205 | 80,983,619 | 1,431,950,527 | 1,503,688,242 | **5.4%** |
+| k = 3,484 | 291,518,041 | 2,098,779,872 | 2,377,781,111 | **12.3%** |
+
+The two parts add to the whole within 0.8%, so nothing material is missing from
+the split. **55% of the operations are 12% of the cost**, and the loop is
+88% to 96% of it. Note also that the loop costs the same 1.43 billion at k=15
+and at k=205 — it does not care about the coefficient width — and 2.10 billion
+at k=3,484, which is the only place the widest intermediates bite.
+
+So the target is **`Int` operations inside the subresultant loop**, about 4,700
+of them in every judged case regardless of difficulty. The setup is worth
+having second: at the hardest size it is 291 million, which matters only once
+the loop is below about a billion.
 
 ## Measured negatives, kept because they cost rounds to establish
 
@@ -186,6 +211,19 @@ same thing on one packed integer of 24 slots.
 | one packed integer, 3 `Int` operations | **1,680,894** |
 | | **16.2x** |
 
+`fused.py` then runs the whole loop that way and checks it, so this is a
+verified design and not a hope: packed integers, the base started from the
+input bound and doubled when the propagated bound outgrows half a slot, the
+leading and second coefficients recovered by division. **All six judged
+resultants agree**, with **five rebasings** over the 23 steps and a final slot
+of 303,476 bits at the hardest difficulty. The alignment that makes it work is
+worth writing down, because getting it wrong is silent: the `A` term takes `f`
+without its leading coefficient, the `B'` term takes `g` without its leading
+coefficient shifted up one slot, and the `C` term takes **`g` entire** — that
+last one is what makes the top slot vanish, since `A*f1 - B'*g1 - C*g0` is
+identically zero. Using `g`'s tail there instead leaves `g0*C` in the top slot
+and the answer is wrong.
+
 So a Kronecker-style packed representation is worth about an order of
 magnitude on the loop, which is where the cost is, and the operand width it
 costs is nearly free. That is the only route measured here that could reach the
@@ -226,9 +264,18 @@ and checks at each step that it really bounds the coefficients:
 | 2^57 | 80,736 bits | 151,737 bits | **1.88** |
 
 Within a factor of 1.88 everywhere, starting from `|a_i| <= 2^(k-1)`, which is
-provable from `centeredNonzeroCoeff` itself. That is tight enough to fix one
-base for the whole run and never repack. **No Hadamard argument is needed**,
+provable from `centeredNonzeroCoeff` itself. **No Hadamard argument is needed**,
 which is the opposite of what the first pass through this reasoning concluded.
+
+One correction to that, also measured. The base cannot be fixed before the run
+starts: an a priori bound on the *final* coefficient would need the Hadamard
+argument after all, and propagating one from the input alone, without the
+leading coefficients in hand, compounds doubly exponentially and is useless. It
+can be fixed **adaptively** — start from the input bound and double the slot
+whenever the propagated bound outgrows half of it, which costs one unpack and
+one repack when it happens. `fused.py` counts those: **five, over 23 steps**,
+at every judged difficulty. At about 48 operations each that is 240 operations
+per case, which is noise beside the 4,700 the loop costs now.
 
 What it would be worth, from `predict.py --packed`, priced at the measured
 250,000 instructions per operation and GMP's `N * S^0.585` for an unbalanced
