@@ -159,9 +159,7 @@ theorem eq_of_lanes {w n x y : Nat} (hw : 0 < w)
   intro j
   rcases Nat.lt_or_ge j (w * n) with hj | hj
   · -- inside the lanes: name the lane and the offset by division
-    have hd : w * (j / w) + j % w = j := by
-      rw [Nat.mul_comm]
-      exact Nat.div_add_mod j w
+    have hd : w * (j / w) + j % w = j := Nat.div_add_mod j w
     have hb : j % w < w := Nat.mod_lt _ hw
     have hi : j / w < n := by
       rw [Nat.div_lt_iff_lt_mul hw, Nat.mul_comm]
