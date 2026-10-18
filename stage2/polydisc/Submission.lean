@@ -69,10 +69,14 @@ theorem exactDivide_eq (divisor : Int) :
     · by_cases hdvd : c % divisor = 0
       · have h1 : c / divisor * divisor = c :=
           Int.ediv_mul_cancel_of_emod_eq_zero hdvd
-        simp [exactDivide, exactDividePolynomial, hz, hdvd, h1, ih]
+        rw [exactDivide, exactDividePolynomial]
+        simp only [hz, hdvd, h1, beq_self_eq_true, beq_iff_eq, bne_self_eq_false,
+          Bool.false_or, if_false, if_true, decide_false, decide_true]
+        rw [ih]
       · have h1 : ¬ (c / divisor * divisor = c) := fun h =>
           hdvd ((emod_zero_iff c divisor).mpr h)
-        simp [exactDivide, exactDividePolynomial, hz, hdvd, h1]
+        rw [exactDivide, exactDividePolynomial]
+        simp [hz, hdvd, h1]
 
 /-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
@@ -111,7 +115,26 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | zero => intro _ _ _; rfl
   | succ n ih =>
     intro initial f g
-    simp only [resultantGo, normalResultantGo, exactDivide_eq_fun, ih]
+    rw [resultantGo, normalResultantGo, exactDivide_eq_fun]
+    -- the bodies are now the same except for the recursive call, which the
+    -- induction hypothesis supplies; the matches are opened rather than
+    -- rewritten through, because `simp only` will not reduce under them
+    cases pseudoRemainder f g with
+    | none => rfl
+    | some raw =>
+      cases (if initial then some raw
+             else exactDividePolynomial ((f.headD 0) ^ 2) raw) with
+      | none => rfl
+      | some coefficients =>
+        cases trimLeading coefficients with
+        | nil => rfl
+        | cons a as =>
+          by_cases hl : ((a :: as).length + 1 == g.length) = true
+          · rw [if_pos hl]
+            cases as with
+            | nil => rfl
+            | cons b bs => exact ih false g (a :: b :: bs)
+          · rw [if_neg hl]
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
@@ -122,7 +145,7 @@ def resultant (f g : List Int) : Option Int :=
     none
 
 theorem resultant_eq (f g : List Int) : resultant f g = normalResultant f g := by
-  simp only [resultant, normalResultant, resultantGo_eq]
+  rw [resultant, normalResultant, resultantGo_eq]
 
 def resultantOf (p : List Int) : Int :=
   let derivative := derivHL p
@@ -131,7 +154,7 @@ def resultantOf (p : List Int) : Int :=
   | none => bareissDet (monicReducedSylvester p derivative)
 
 theorem resultantOf_eq (p : List Int) : resultantOf p = resultantFromPoly p := by
-  simp only [resultantOf, resultantFromPoly, resultant_eq]
+  rw [resultantOf, resultantFromPoly, resultant_eq]
 
 def impl (n : Nat) : Int :=
   let p := polyOf n
@@ -141,6 +164,6 @@ def impl (n : Nat) : Int :=
 
 theorem impl_correct : ∀ n, impl n = discSpec n := by
   intro n
-  simp only [impl, discSpec, discriminantFromPoly, resultantOf_eq]
+  rw [impl, discSpec, discriminantFromPoly, resultantOf_eq]
 
 end Submission

@@ -139,6 +139,35 @@ jobs:
             --label candidate --out ../../../candidate-times.json \
             --timeout 600
 
+      # One case per process cannot resolve this change. Lean start-up is
+      # 0.95 s of every figure above and the largest judged case is 1.1 s of
+      # work, while two cases at the same difficulty varied by 0.5 s between
+      # themselves. A saving of a tenth is well inside that.
+      #
+      # So the hardest difficulty is timed in bulk: eight distinct inputs in
+      # one process, which pays start-up once against about nine seconds of
+      # work. The inputs are distinct so that nothing is served from the
+      # kernel's cache. Starter and candidate are timed the same way, back to
+      # back, on the same runner.
+      - name: Time both in bulk at the hardest difficulty
+        if: always()
+        working-directory: upstream/problems/polydisc
+        run: |
+          python ../../../stage2/polydisc/bulk.py --emit > Bulk.lean
+          wc -l Bulk.lean
+          echo "--- whatever is built now (the candidate, if it built) ---"
+          /usr/bin/time -f 'FIRST bulk %e s' lake env lean Bulk.lean \
+            > ../../../bulk-first.txt 2>&1 || true
+          tail -2 ../../../bulk-first.txt
+          echo "--- restoring the shipped starter and rebuilding ---"
+          git -C ../.. checkout -- problems/polydisc/Submission.lean
+          lake build 2>&1 | tail -2
+          /usr/bin/time -f 'STARTER bulk %e s' lake env lean Bulk.lean \
+            > ../../../bulk-starter.txt 2>&1 || true
+          tail -2 ../../../bulk-starter.txt
+          echo "=== bulk result ==="
+          grep -h "bulk .* s" ../../../bulk-first.txt ../../../bulk-starter.txt || true
+
       - name: Report
         if: always()
         run: |
@@ -167,4 +196,6 @@ jobs:
             candidate-times.json
             axioms.txt
             probe.log
+            bulk-first.txt
+            bulk-starter.txt
           if-no-files-found: warn
