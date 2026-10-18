@@ -718,6 +718,5 @@ theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
     rw [Nat.add_mul_div_right _ _ (by omega), Nat.div_eq_of_lt hlow,
         Nat.zero_add]
   rw [hdiv, hsg, hg2, hup]
-  omega
 
 end Lane
