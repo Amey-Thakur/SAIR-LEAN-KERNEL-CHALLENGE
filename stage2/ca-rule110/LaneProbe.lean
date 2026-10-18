@@ -1,69 +1,83 @@
 import Spec
 
 /-!
-Which `Nat` bit lemmas core Lean provides, for the lane-packed initial row.
+# The foundation for the lane-packed initial row
 
-`lanes.py` settles the algorithm: give every cell a 128-bit lane inside one
-`Nat`, run the whole 32-bit mixing hash on all 256 cells at once, then gather
-one bit per lane back down. It is 99 operations against the specification's
-5,348 and it agrees with the specification on 2,014 seeds and every published
-case.
+`lanes.py` settles the algorithm: give every cell a lane inside one `Nat`, run
+the whole 32-bit mixing hash on all 256 cells at once, then gather one bit per
+lane back down. What is left is the proof, and all of it rests on one lemma:
+reading a bit of a packed number gives the corresponding bit of the lane it
+falls in.
 
-What is not settled is the proof, and the proof is entirely about `Nat` bits.
-This package has no Mathlib, so only core's API is available, and every lemma
-name written without a toolchain is a guess. The probe is cheap and the guess
-is not.
+Lanes are assembled with `|||` rather than `+` deliberately. The values are
+disjoint either way, but `Nat.testBit_or` turns a bit of the whole into a
+disjunction of bits of the parts with no carry reasoning at all, while `+`
+would need a carry argument for the same fact. Core Lean has no
+`or_eq_add_of_and_eq_zero`, so `+` would mean proving that too.
 
-The architecture this is choosing between:
-
-  * bitwise — state everything through `Nat.testBit` and finish with
-    extensionality. Needs `Nat.eq_of_testBit_eq` and the `testBit` lemmas for
-    shift, and, or and xor.
-  * arithmetic — state the packing as a sum of `a i * 2 ^ (w * i)` and prove
-    the multiply and the add by distributivity, falling back to bits only for
-    xor and for the mask.
-
-The second is much the easier if it is available, because the multiply is the
-step that carries the lane-independence argument.
+This file is not the submission. It compiles on its own in CI so that a wrong
+lemma name or a broken induction is reported by itself rather than buried in
+the real proof, and so that the live entry is never at risk while this is
+being built.
 -/
 
--- extensionality: the whole bitwise route depends on this one
-#check @Nat.eq_of_testBit_eq
+namespace Lane
 
--- testBit against each operation the mix uses
-#check @Nat.testBit_shiftLeft
-#check @Nat.testBit_shiftRight
-#check @Nat.testBit_or
-#check @Nat.testBit_and
-#check @Nat.testBit_xor
-#check @Nat.testBit_two_pow_sub_one
-#check @Nat.testBit_mul_two_pow
-#check @Nat.testBit_add_one
+/-- `n` lanes of width `w`, lane `k` holding `f k`. -/
+def pack (w : Nat) (f : Nat → Nat) : Nat → Nat
+  | 0 => 0
+  | k + 1 => pack w f k ||| (f k <<< (w * k))
 
--- shifts as arithmetic, which is what lets the multiply be proved by algebra
-#check @Nat.shiftLeft_eq
-#check @Nat.shiftRight_eq_div_pow
-#check @Nat.mul_add_lt_is_or
+/-- A value below `2 ^ w` has no bits at or above `w`. The core lemma gives
+this only at the index `w` itself. -/
+theorem testBit_eq_false_of_lt_pow {x w i : Nat} (hx : x < 2 ^ w) (hi : w ≤ i) :
+    x.testBit i = false := by
+  have h2 : (2 : Nat) ^ w ≤ 2 ^ i := Nat.pow_le_pow_right (by omega) hi
+  exact Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le hx h2)
 
--- bounds, for the lane-independence argument
-#check @Nat.lt_two_pow_iff
-#check @Nat.testBit_lt_two_pow
-#check @Nat.testBit_eq_false_of_lt
-#check @Nat.two_pow_pos
-#check @Nat.pow_lt_pow_right
+/-- Nothing is packed at or above the top of the last lane. -/
+theorem testBit_pack_high (w : Nat) (f : Nat → Nat)
+    (hf : ∀ k, f k < 2 ^ w) :
+    ∀ n j, w * n ≤ j → (pack w f n).testBit j = false := by
+  intro n
+  induction n with
+  | zero => intro j _; simp [pack]
+  | succ k ih =>
+    intro j hj
+    have hwk : w * k ≤ j := by
+      have : w * k ≤ w * (k + 1) := Nat.mul_le_mul_left w (by omega)
+      omega
+    rw [pack, Nat.testBit_or, ih j hwk, Nat.testBit_shiftLeft]
+    have hge : w ≤ j - w * k := by
+      have : w * (k + 1) = w * k + w := by ring
+      omega
+    rw [testBit_eq_false_of_lt_pow (hf k) hge]
+    simp
 
--- masking a lane down to its live width
-#check @Nat.and_two_pow_sub_one_eq_mod
-#check @Nat.mod_two_pow_eq_and
-#check @Nat.and_pow_two_sub_one_eq_mod
+/-- The lemma everything else rests on: a bit inside lane `i` of the packed
+number is that bit of lane `i`'s value. -/
+theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
+    ∀ n i b, b < w → i < n →
+      (pack w f n).testBit (w * i + b) = (f i).testBit b := by
+  intro n
+  induction n with
+  | zero => intro _ _ _ hin; omega
+  | succ k ih =>
+    intro i b hb hin
+    rw [pack, Nat.testBit_or, Nat.testBit_shiftLeft]
+    rcases Nat.lt_or_ge i k with hlt | hge
+    · -- the bit is in an earlier lane, so the newest lane contributes nothing
+      rw [ih i b hb hlt]
+      have : w * i + b < w * k := by
+        have h1 : w * (i + 1) ≤ w * k := Nat.mul_le_mul_left w hlt
+        have h2 : w * (i + 1) = w * i + w := by ring
+        omega
+      simp [Nat.not_le_of_lt this]
+    · -- the bit is in the newest lane, so everything before it is below
+      have hik : i = k := by omega
+      subst hik
+      rw [testBit_pack_high w f hf k (w * i + b) (by omega)]
+      have hle : w * i ≤ w * i + b := by omega
+      simp [hle]
 
--- the or that assembles disjoint lanes, as an add
-#check @Nat.or_eq_add_of_and_eq_zero
-#check @Nat.add_eq_or_of_and_eq_zero
-#check @Nat.land_eq_zero_iff
-
--- division and modulus facts the gather needs
-#check @Nat.div_add_mod
-#check @Nat.mul_div_cancel_left
-#check @Nat.add_mul_div_left
-#check @Nat.add_mul_mod_self_left
+end Lane
