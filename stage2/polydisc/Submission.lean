@@ -62,13 +62,13 @@ theorem guard_eq (c divisor : Int) :
       = (divisor == 0 || c % divisor != 0) := by
   by_cases hz : divisor = 0
   · simp [hz]
-  · have key : (c / divisor * divisor == c) = (c % divisor == 0) := by
-      by_cases h : c % divisor = 0
-      · simp [h, Int.ediv_mul_cancel_of_emod_eq_zero h]
-      · have hne : ¬ (c / divisor * divisor = c) := fun hh =>
-          h ((emod_zero_iff c divisor).mpr hh)
-        simp [h, hne]
-    simp only [bne, key]
+  · by_cases h : c % divisor = 0
+    · have h1 : c / divisor * divisor = c :=
+        Int.ediv_mul_cancel_of_emod_eq_zero h
+      simp [hz, h, h1]
+    · have hne : ¬ (c / divisor * divisor = c) := fun hh =>
+        h ((emod_zero_iff c divisor).mpr hh)
+      simp [hz, h, hne]
 
 theorem exactDivide_eq (divisor : Int) :
     ∀ p, exactDivide divisor p = exactDividePolynomial divisor p := by
@@ -116,25 +116,15 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | succ n ih =>
     intro initial f g
     rw [resultantGo, normalResultantGo, exactDivide_eq_fun]
-    -- the bodies are now the same except for the recursive call, which the
-    -- induction hypothesis supplies; the matches are opened rather than
-    -- rewritten through, because `simp only` will not reduce under them
-    cases pseudoRemainder f g with
-    | none => rfl
-    | some raw =>
-      cases (if initial then some raw
-             else exactDividePolynomial ((f.headD 0) ^ 2) raw) with
-      | none => rfl
-      | some coefficients =>
-        cases trimLeading coefficients with
-        | nil => rfl
-        | cons a as =>
-          by_cases hl : ((a :: as).length + 1 == g.length) = true
-          · rw [if_pos hl]
-            cases as with
-            | nil => rfl
-            | cons b bs => exact ih false g (a :: b :: bs)
-          · rw [if_neg hl]
+    -- the bodies are now identical except for the recursive call. `split`
+    -- takes the matches and the conditionals apart in step on both sides,
+    -- which `simp only` will not do, and every leaf is then either literally
+    -- the same term or one application of the induction hypothesis.
+    repeat' split
+    all_goals first
+      | rfl
+      | exact ih _ _ _
+      | simp [ih]
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
