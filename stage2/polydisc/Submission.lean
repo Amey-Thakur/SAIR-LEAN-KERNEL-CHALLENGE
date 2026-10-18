@@ -70,9 +70,14 @@ theorem exactDivide_eq (divisor : Int) :
       · have h1 : c / divisor * divisor = c :=
           Int.ediv_mul_cancel_of_emod_eq_zero hdvd
         rw [exactDivide, exactDividePolynomial]
-        simp only [hz, hdvd, h1, beq_self_eq_true, beq_iff_eq, bne_self_eq_false,
-          Bool.false_or, if_false, if_true, decide_false, decide_true]
+        simp only [hz, hdvd, h1, beq_self_eq_true, beq_iff_eq,
+          bne_self_eq_false, if_false, if_true]
         rw [ih]
+        -- both sides are now the same match, differing only in the name its
+        -- arm binds, so the cases are opened to let `rfl` see it
+        cases exactDividePolynomial divisor cs with
+        | none => rfl
+        | some rest => rfl
       · have h1 : ¬ (c / divisor * divisor = c) := fun h =>
           hdvd ((emod_zero_iff c divisor).mpr h)
         rw [exactDivide, exactDividePolynomial]
