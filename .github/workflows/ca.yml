@@ -194,6 +194,48 @@ jobs:
           wc -l Cases.lean
           lake env lean Cases.lean
 
+      # The entry before this one and this one, built and timed on the same
+      # runner, back to back, on all 24 judged cases in a single process so
+      # that Lean start-up is paid once rather than 24 times. One case per
+      # process would report mostly start-up: the whole of the previous
+      # entry's judged work is about a second.
+      #
+      # Four of the judged cases ask for zero steps, so they are the initial
+      # row alone, which is the part this entry changes.
+      - name: Time the previous entry against this one
+        if: always()
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          python - <<'PY' > Bulk.lean
+          import json, pathlib, sys
+          sys.set_int_max_str_digits(200_000)
+          cases = json.loads(pathlib.Path(
+              "../../../stage2/ca-rule110/cases.json").read_text())["cases"]
+          print("import Submission")
+          print("set_option maxRecDepth 8000000")
+          print("set_option maxHeartbeats 0")
+          print("namespace Bulk")
+          for i, c in enumerate(cases):
+              print(f"theorem b{i} : Submission.impl {c['n']} "
+                    f"= {c['value']} := by rfl")
+          print("end Bulk")
+          PY
+          wc -l Bulk.lean
+          for which in prev new; do
+            if [ "$which" = prev ]; then
+              cp ../../../stage2/ca-rule110/Submission.prev.lean Submission.lean
+            else
+              cp ../../../stage2/ca-rule110/Submission.lean Submission.lean
+            fi
+            lake build > /dev/null 2>&1 || true
+            /usr/bin/time -f "$which bulk %e s" lake env lean Bulk.lean               >> ../../../bulk.log 2>&1 || true
+          done
+          echo "=== 24 judged cases, one process each, same runner ==="
+          grep -E "bulk .* s" ../../../bulk.log || true
+          echo "=== any failure to reduce ==="
+          grep -iE "error" ../../../bulk.log | head -10 || echo "(none)"
+
       - name: Report
         if: always()
         run: |
@@ -221,4 +263,5 @@ jobs:
             probe.log
             laneprobe.log
             lanetime.log
+            bulk.log
           if-no-files-found: warn
