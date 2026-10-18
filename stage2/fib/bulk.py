@@ -138,29 +138,130 @@ def emit_decomp(case: str, n: int) -> list[str]:
     return lines
 
 
-def emit_prof(n: int, count: int) -> list[str]:
-    """The same forcing check under Lean's own profiler.
+PROF = ["set_option profiler true", "set_option profiler.threshold 1"]
 
-    `profiler true` separates elaboration from `type checking`, and type
-    checking is the kernel's `addDecl` -- the only thing the judge counts.
+
+def emit_prof(group: str, count: int) -> list[str]:
+    """The forcing check under Lean's own profiler.
+
+    `profiler true` splits the run into phases and reports a cumulative
+    `type checking` figure. Type checking is the kernel's `addDecl`, and the
+    kernel reducing `impl n` and comparing it with the answer is exactly and
+    only what the judge counts. Everything else in the file -- parsing,
+    elaboration, the `rfl` tactic's own reduction, linting -- is reported
+    separately and is not the judge's business.
     """
-    lines = list(HEADER) + ["set_option profiler true",
-                            "set_option profiler.threshold 1"]
-    lo, hi = GROUPS["f3"]
+    lines = list(HEADER) + PROF + [f"namespace FibProf{group}"]
+    lo, hi = GROUPS[group]
     for i, m in enumerate(spread(lo, hi, count)):
         r = fib_plain(m) % MOD
         lines.append(f"theorem p{i} : "
                      f"Submission.impl {m} % 0x{MOD:X} = {r} := by rfl")
+    lines.append(f"end FibProf{group}")
+    return lines
+
+
+def emit_fuel(mode: str, count: int) -> list[str]:
+    """Does the structural fuel's SIZE cost the kernel anything?
+
+    `fibAux fuel n` needs only `fuel` at least the number of halvings, which
+    is 18 at n = 150000; `impl` passes `n` because `n` is the only bound
+    available without computing a logarithm, and `Nat.log2` is itself
+    well-founded. If the recursion really is structural, the kernel unfolds
+    one `Nat.rec` a level and `fibAux 24 n` costs the same as `fibAux n n`.
+    If it was compiled to well-founded recursion on the fuel instead, the
+    second has to reduce an accessibility proof of depth `n` and is thousands
+    of times slower.
+
+    Only a design that exposes `fibAux` can be asked this.
+    """
+    fuels = {"small": "24", "big": None}
+    if mode not in fuels:
+        raise SystemExit(f"unknown fuel mode {mode}")
+    lines = list(HEADER) + PROF + [f"namespace FibFuel{mode}"]
+    lo, hi = GROUPS["f3"]
+    for i, n in enumerate(spread(lo, hi, count)):
+        r = fib_plain(n) % MOD
+        fuel = fuels[mode] or str(n)
+        lines.append(f"theorem q{i} : "
+                     f"(Submission.fibAux {fuel} {n}).1 % 0x{MOD:X} = {r} "
+                     f":= by rfl")
+    lines.append(f"end FibFuel{mode}")
+    return lines
+
+
+def chain(n: int) -> list[int]:
+    """The halving chain `impl` actually walks, largest first."""
+    out = []
+    k = n // 2
+    while k > 0:
+        out.append(k)
+        k //= 2
+    return out
+
+
+def emit_calib(n: int) -> list[str]:
+    """What does the arithmetic alone cost the kernel?
+
+    The products `impl n` performs are known: at each level of the halving
+    chain, `a * (2b - a)`, `a * a` and `b * b` for `(a, b) = (fib k,
+    fib (k+1))`, and one product at the top. This file performs exactly those
+    products on literal operands, so there is no recursion, no `Prod`, no
+    `ite` and no unfolding in it at all -- only the kernel's own GMP calls.
+
+    Its `type checking` figure is therefore the floor: the part of a candidate's
+    cost that no amount of rewriting can remove. The difference between it and
+    a candidate is the overhead, and the overhead is the only thing worth
+    attacking.
+
+    The operands are written in hex, which keeps the parser out of the
+    comparison; parsing is a separate phase and the profiler reports it
+    separately in any case.
+    """
+    ks = chain(n)
+    lines = list(HEADER) + PROF + ["namespace FibCalib"]
+
+    # One squaring and one general product at the top width, priced alone.
+    a = fib_plain(ks[0])
+    b = fib_plain(ks[0] + 1)
+    lines.append(f"-- top width: {a.bit_length()} bits")
+    lines.append(f"theorem sq : (0x{a:X} * 0x{a:X}) % 0x{MOD:X} = "
+                 f"{a * a % MOD} := by rfl")
+    lines.append(f"theorem gen : (0x{a:X} * 0x{b:X}) % 0x{MOD:X} = "
+                 f"{a * b % MOD} := by rfl")
+
+    # The whole product set of the specialised design, as one sum.
+    terms, total = [], 0
+    top = a * (2 * b - a) if n % 2 == 0 else a * a + b * b
+    terms.append(f"0x{a:X} * 0x{(2 * b - a) if n % 2 == 0 else a:X}")
+    total += a * ((2 * b - a) if n % 2 == 0 else a)
+    if n % 2 == 1:
+        terms.append(f"0x{b:X} * 0x{b:X}")
+        total += b * b
+    for k in ks[1:]:
+        x = fib_plain(k)
+        y = fib_plain(k + 1)
+        terms.append(f"0x{x:X} * 0x{2 * y - x:X}")
+        terms.append(f"0x{x:X} * 0x{x:X}")
+        terms.append(f"0x{y:X} * 0x{y:X}")
+        total += x * (2 * y - x) + x * x + y * y
+    _ = top
+    lines.append(f"-- {len(terms)} products, the specialised design's set")
+    lines.append(f"theorem allprod : ({' + '.join(terms)}) % 0x{MOD:X} = "
+                 f"{total % MOD} := by rfl")
+    lines.append("end FibCalib")
     return lines
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit", required=True,
-                    choices=["bulk", "decomp", "prof"])
+                    choices=["bulk", "decomp", "prof", "fuel", "calib"])
     ap.add_argument("--count", type=int, default=16)
     ap.add_argument("--groups", default="f1,f2,f3")
+    ap.add_argument("--group", default="f3")
     ap.add_argument("--case", default="T3")
+    ap.add_argument("--fuelmode", default="small", choices=["small", "big"])
     ap.add_argument("--n", type=int, default=150_000)
     args = ap.parse_args()
 
@@ -174,8 +275,14 @@ def main() -> int:
         lines = emit_bulk(args.count, groups)
     elif args.emit == "decomp":
         lines = emit_decomp(args.case, args.n)
+    elif args.emit == "fuel":
+        lines = emit_fuel(args.fuelmode, args.count)
+    elif args.emit == "calib":
+        lines = emit_calib(args.n)
     else:
-        lines = emit_prof(args.n, 4)
+        if args.group not in GROUPS:
+            raise SystemExit(f"unknown group {args.group}")
+        lines = emit_prof(args.group, args.count)
 
     print("\n".join(lines))
     return 0
