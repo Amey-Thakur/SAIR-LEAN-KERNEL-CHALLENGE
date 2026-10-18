@@ -43,7 +43,6 @@ is never at risk while this is being built.
 #check @Nat.and_lt_two_pow
 #check @Nat.shiftRight_le
 #check @Nat.mul_mod
-#check @Nat.shiftRight_lt_two_pow
 
 namespace Lane
 
@@ -204,7 +203,7 @@ theorem pack_and_mask {w m n : Nat} (f : Nat → Nat) (hw : 0 < w) (hm : m ≤ w
   have hres : ∀ k, f k % 2 ^ m < 2 ^ w := fun k =>
     Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
   refine eq_of_lanes hw
-    (Nat.lt_of_le_of_lt (Nat.and_le_left _ _) (pack_lt w f hf n))
+    (Nat.lt_of_le_of_lt (Nat.and_le_left) (pack_lt w f hf n))
     (pack_lt w _ hres n) ?_
   intro i b hin hbw
   rw [Nat.testBit_and,
@@ -247,7 +246,7 @@ theorem pack_shiftRight_and_mask {w m s n : Nat} (f : Nat → Nat) (hw : 0 < w)
   have hres : ∀ k, (f k >>> s) % 2 ^ m < 2 ^ w := fun k =>
     Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
   refine eq_of_lanes hw
-    (Nat.lt_of_le_of_lt (Nat.and_le_left _ _)
+    (Nat.lt_of_le_of_lt (Nat.and_le_left)
       (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ s) (pack_lt w f hf n)))
     (pack_lt w _ hres n) ?_
   intro i b hin hbw
