@@ -128,12 +128,12 @@ jobs:
         working-directory: upstream/problems/ca-rule110
         run: |
           lake build Spec
-          for which in none spec packed; do
+          for which in none ramp mix bits packed spec; do
             python ../../../stage2/ca-rule110/gentime.py --cases "$which"               > "Bench_$which.lean"
             /usr/bin/time -f "$which %e s" lake env lean "Bench_$which.lean"               >> ../../../lanetime.log 2>&1 || true
           done
           echo "=== kernel reduction, eight seeds per file ==="
-          grep -E "^(none|spec|packed) " ../../../lanetime.log || true
+          grep -E "^(none|ramp|mix|bits|packed|spec) " ../../../lanetime.log || true
           echo "=== any error ==="
           grep -iE "error" ../../../lanetime.log | head -10 || echo "(none)"
 
