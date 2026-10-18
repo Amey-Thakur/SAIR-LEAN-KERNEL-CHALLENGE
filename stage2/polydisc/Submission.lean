@@ -39,14 +39,12 @@ the quotient back rather than by a second division. -/
 def exactDivide (divisor : Int) : List Int → Option (List Int)
   | [] => some []
   | coefficient :: coefficients =>
-      if divisor == 0 then none
+      let quotient := coefficient / divisor
+      if divisor == 0 || quotient * divisor != coefficient then none
       else
-        let quotient := coefficient / divisor
-        if quotient * divisor == coefficient then
-          match exactDivide divisor coefficients with
-          | none => none
-          | some rest => some (quotient :: rest)
-        else none
+        match exactDivide divisor coefficients with
+        | none => none
+        | some rest => some (quotient :: rest)
 
 /-- The test this file replaces, as an identity on `Int`. -/
 theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
@@ -57,31 +55,28 @@ theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
     rw [Int.emod_def, Int.mul_comm, h]
     omega
 
+/-- The two guards decide the same thing, so the bodies around them are
+already identical. -/
+theorem guard_eq (c divisor : Int) :
+    (divisor == 0 || c / divisor * divisor != c)
+      = (divisor == 0 || c % divisor != 0) := by
+  by_cases hz : divisor = 0
+  · simp [hz]
+  · have key : (c / divisor * divisor == c) = (c % divisor == 0) := by
+      by_cases h : c % divisor = 0
+      · simp [h, Int.ediv_mul_cancel_of_emod_eq_zero h]
+      · have hne : ¬ (c / divisor * divisor = c) := fun hh =>
+          h ((emod_zero_iff c divisor).mpr hh)
+        simp [h, hne]
+    simp only [bne, key]
+
 theorem exactDivide_eq (divisor : Int) :
     ∀ p, exactDivide divisor p = exactDividePolynomial divisor p := by
   intro p
   induction p with
   | nil => rfl
   | cons c cs ih =>
-    by_cases hz : divisor = 0
-    · subst hz
-      simp [exactDivide, exactDividePolynomial]
-    · by_cases hdvd : c % divisor = 0
-      · have h1 : c / divisor * divisor = c :=
-          Int.ediv_mul_cancel_of_emod_eq_zero hdvd
-        rw [exactDivide, exactDividePolynomial]
-        simp only [hz, hdvd, h1, beq_self_eq_true, beq_iff_eq,
-          bne_self_eq_false, if_false, if_true]
-        rw [ih]
-        -- both sides are now the same match, differing only in the name its
-        -- arm binds, so the cases are opened to let `rfl` see it
-        cases exactDividePolynomial divisor cs with
-        | none => rfl
-        | some rest => rfl
-      · have h1 : ¬ (c / divisor * divisor = c) := fun h =>
-          hdvd ((emod_zero_iff c divisor).mpr h)
-        rw [exactDivide, exactDividePolynomial]
-        simp [hz, hdvd, h1]
+    rw [exactDivide, exactDividePolynomial, guard_eq, ih]
 
 /-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
