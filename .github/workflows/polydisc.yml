@@ -25,6 +25,12 @@ on:
       - "stage2/report_times.py"
       - ".github/workflows/polydisc.yml"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "which measurement to run"
+        type: choice
+        default: both
+        options: [both, wall, instructions]
 
 permissions:
   contents: read
@@ -35,6 +41,9 @@ env:
 jobs:
   measure:
     name: candidate against the shipped starter
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.mode == 'both' || inputs.mode == 'wall'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -198,4 +207,139 @@ jobs:
             probe.log
             bulk-first.txt
             bulk-starter.txt
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # The metric the leaderboard actually ranks, measured rather than modelled.
+  #
+  # `rules/evaluation.md` says it: "In three separate processes, count only the
+  # target declaration's kernel check, which reduces `impl n` and compares it
+  # with `v`", on a "Linux PMU host" with "kernel instruction counts". So the
+  # ranked quantity is instructions retired by the KERNEL alone. Wall clock
+  # measures the wrong thing twice over -- it carries 0.95 s of start-up and
+  # the elaboration of a 24,000-figure literal, and it cannot resolve a tenth
+  # of the work at the sizes that matter.
+  #
+  # A GitHub runner has no usable PMU, so `perf` cannot reproduce that counter.
+  # Callgrind can: it counts guest instructions exactly, with no run-to-run
+  # noise, which is the same quantity a PMU reports for user-space work. The
+  # kernel is then separated from the elaborator by differencing against the
+  # same file compiled with `debug.skipKernelTC`, which elaborates the
+  # declaration and never hands it to the kernel.
+  #
+  # The instrument is checked before it is trusted: the sum of those
+  # differences over the six judged sizes is compared with 10,322,617,420, the
+  # published figure for this very file.
+  # ---------------------------------------------------------------------------
+  instrument:
+    name: what the judge charges for, in instructions
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.mode == 'both' || inputs.mode == 'instructions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch the challenge at the pinned commit
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/SAIRcompetition/lean-kernel-challenge.git
+          git -C upstream fetch --depth 1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout FETCH_HEAD
+
+      - name: Install elan and valgrind
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh -o elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq valgrind
+          valgrind --version
+
+      - name: Is a hardware counter available on this runner at all
+        continue-on-error: true
+        run: |
+          cat /proc/sys/kernel/perf_event_paranoid || true
+          sudo apt-get install -y -qq linux-tools-common linux-tools-generic \
+            || true
+          perf stat -e instructions /bin/true 2>&1 | tail -8 || true
+
+      - name: Build the shipped starter, which is the ranked entry
+        working-directory: upstream/problems/polydisc
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tail -3
+
+      - name: Emit the benchmarks
+        run: |
+          python stage2/polydisc/instrument.py \
+            --emit upstream/problems/polydisc/bench
+
+      # One process per file, one file per measurement, exactly as the judge
+      # does it. A deadline guards the loop so that an unaccelerated primitive
+      # in one probe cannot cost the whole table.
+      - name: Count instructions, starter
+        working-directory: upstream/problems/polydisc
+        run: |
+          cp ../../../stage2/polydisc/runbench.sh .
+          bash runbench.sh bench 3300 all
+          cp -r bench ../../../bench-starter
+
+      - name: Report, starter
+        if: always()
+        run: |
+          python stage2/polydisc/instrument.py --report bench-starter \
+            | tee instrument-starter.txt
+
+      - name: Place the candidate and rebuild
+        working-directory: upstream/problems/polydisc
+        run: |
+          set -o pipefail
+          cp ../../../stage2/polydisc/Submission.lean .
+          lake build 2>&1 | tail -3
+
+      # The same six sizes against the candidate. The candidate is the entry
+      # that measured 3% faster on the clock; if the instrument cannot see
+      # that, it cannot see anything smaller either.
+      - name: Count instructions, candidate, judged sizes only
+        working-directory: upstream/problems/polydisc
+        run: |
+          rm -rf benchc && cp -r bench benchc
+          bash runbench.sh benchc 1500 judged
+          cp -r benchc ../../../bench-candidate
+
+      - name: Report, candidate
+        if: always()
+        run: |
+          python stage2/polydisc/instrument.py --report bench-candidate \
+            | tee instrument-candidate.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### polydisc, kernel instruction counts"
+            echo '```'
+            cat instrument-starter.txt 2>/dev/null || true
+            echo '```'
+            echo '```'
+            cat instrument-candidate.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polydisc-instructions
+          path: |
+            instrument-starter.txt
+            instrument-candidate.txt
+            bench-starter/*.out
+            bench-candidate/*.out
+            bench-starter/manifest.json
           if-no-files-found: warn
