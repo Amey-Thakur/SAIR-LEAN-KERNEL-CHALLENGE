@@ -78,6 +78,20 @@ jobs:
             --label starter --out ../../../starter-times.json \
             --timeout 600
 
+      # Every lemma name in a proof written without a toolchain is a guess.
+      # This compiles the guesses alone, so a wrong name is reported by itself
+      # rather than buried in the real proof's errors, and `#check` prints the
+      # statement so the direction of each rewrite is known before it is used.
+      - name: Probe which core Int lemmas exist
+        continue-on-error: true
+        working-directory: upstream/problems/polydisc
+        run: |
+          lake build Spec
+          cp ../../../stage2/polydisc/Probe.lean .
+          lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          echo "--- names that did not resolve ---"
+          grep -E "[Uu]nknown (constant|identifier)" ../../../probe.log || echo "(all resolved)"
+
       - name: Place the candidate in the real problem package
         run: |
           if diff -q stage2/polydisc/Submission.lean \
@@ -152,4 +166,5 @@ jobs:
             starter-times.json
             candidate-times.json
             axioms.txt
+            probe.log
           if-no-files-found: warn
