@@ -121,6 +121,8 @@ emit --emit prof  --group f1 --count "$COUNT" > Proff1.lean
 emit --emit prof  --group f2 --count "$COUNT" > Proff2.lean
 emit --emit prof  --group f3 --count "$COUNT" > Proff3.lean
 emit --emit calib --n 150000                  > Calib.lean
+emit --emit calibsweep                        > Floor.lean
+emit --emit calibsweepraw                     > Floorraw.lean
 emit --emit fuel  --fuelmode small --count 4  > Fuelsmall.lean
 emit --emit fuel  --fuelmode big   --count 4  > Fuelbig.lean
 # The old method, kept so that the two can be compared in one place.
@@ -134,7 +136,7 @@ printf 'import Submission\n#print Submission.impl\n#print Submission.fibAux\n' \
   > Shape.lean
 
 # --------------------------------------------------------------- the designs
-for design in starter SubmissionFastDouble Candidate; do
+for design in starter Candidate CandidateRaw; do
   if [ "$design" != "starter" ] && [ ! -f "$ROOT/stage2/fib/$design.lean" ]; then
     echo "=== $design: no such file, skipped ==="
     continue
@@ -147,20 +149,28 @@ for design in starter SubmissionFastDouble Candidate; do
   run prof-f2 Proff2.lean 2 "$COUNT"
   run prof-f3 Proff3.lean 2 "$COUNT"
   if [ "$design" = "starter" ]; then
-    # The floor does not depend on the design; one measurement of it is
+    # The floor does not depend on any candidate; one measurement of it is
     # enough, and the starter is the build that is certain to exist.
-    run calib Calib.lean 2 49
+    run calib    Calib.lean    2 49
+    run floor    Floor.lean    2 0
+    run floorraw Floorraw.lean 2 0
     run T0 T0.lean 2 0
     run T1 T1.lean 2 0
     run T3 T3.lean 2 0
     run T4 T4.lean 2 0
+    echo "  --- the floor, per declaration, notation then raw ---"
+    grep -E "type checking took" "$LOGS/$DESIGN-floor-1.log" || true
+    echo "  ---"
+    grep -E "type checking took" "$LOGS/$DESIGN-floorraw-1.log" || true
   else
     run fuel-small Fuelsmall.lean 2 4
     run fuel-big   Fuelbig.lean   2 4
     echo "  --- what Lean compiled ---"
     lake env lean Shape.lean > "$LOGS/shape-$DESIGN.log" 2>&1
-    head -60 "$LOGS/shape-$DESIGN.log"
+    head -40 "$LOGS/shape-$DESIGN.log"
   fi
+  echo "  --- per declaration at the hardest group ---"
+  grep -E "type checking took" "$LOGS/$DESIGN-prof-f3-1.log" || true
 done
 
 # The package is left holding the starter, so nothing a later step builds is

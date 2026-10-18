@@ -138,7 +138,11 @@ def emit_decomp(case: str, n: int) -> list[str]:
     return lines
 
 
-PROF = ["set_option profiler true", "set_option profiler.threshold 1"]
+# Threshold 0 so that every declaration's own `type checking` figure is
+# printed, not only the ones over a millisecond. The cumulative total is the
+# headline; the per-declaration lines are what separate one size from another
+# inside a single process.
+PROF = ["set_option profiler true", "set_option profiler.threshold 0"]
 
 
 def emit_prof(group: str, count: int) -> list[str]:
@@ -200,6 +204,69 @@ def chain(n: int) -> list[int]:
     return out
 
 
+def products(n: int) -> tuple[list[tuple[int, int]], int]:
+    """The products the specialised design performs at `n`, and their sum.
+
+    One product at the top, then three at each level of the halving chain
+    below it. The level that turns `(fib 0, fib 1)` into `(fib 1, fib 2)` is
+    left out; its operands are 0 and 1 and it cannot matter.
+    """
+    ks = chain(n)
+    out: list[tuple[int, int]] = []
+    a, b = fib_plain(ks[0]), fib_plain(ks[0] + 1)
+    if n % 2 == 0:
+        out.append((a, 2 * b - a))
+    else:
+        out.append((a, a))
+        out.append((b, b))
+    for k in ks[1:]:
+        x, y = fib_plain(k), fib_plain(k + 1)
+        out.append((x, 2 * y - x))
+        out.append((x, x))
+        out.append((y, y))
+    return out, sum(p * q for p, q in out)
+
+
+def calib_theorem(name: str, n: int, raw: bool) -> str:
+    """One theorem performing exactly `impl n`'s products, on literals.
+
+    `raw` writes `Nat.mul` and `Nat.add` rather than `*` and `+`. The two
+    compute the same thing and differ only in how many instance projections
+    the kernel unfolds on the way to its own arithmetic, so the pair prices
+    that unfolding.
+    """
+    prod, total = products(n)
+    if raw:
+        terms = [f"Nat.mul 0x{p:X} 0x{q:X}" for p, q in prod]
+        body = terms[0]
+        for t in terms[1:]:
+            body = f"Nat.add ({body}) ({t})"
+        lhs = f"Nat.mod ({body}) 0x{MOD:X}"
+    else:
+        terms = [f"0x{p:X} * 0x{q:X}" for p, q in prod]
+        lhs = f"({' + '.join(terms)}) % 0x{MOD:X}"
+    return (f"-- n = {n}: {len(prod)} products, widest operand "
+            f"{max(max(p, q).bit_length() for p, q in prod)} bits\n"
+            f"theorem {name} : {lhs} = {total % MOD} := by rfl")
+
+
+def emit_calibsweep(raw: bool) -> list[str]:
+    """The floor at five sizes in one process.
+
+    If the kernel's cost for a product is flat in the operand width, these
+    five figures follow the product COUNT, which rises only from 29 to 52
+    across the range. If the cost is the GMP multiplication itself, they
+    follow the width and the largest is some thirty times the smallest.
+    Nothing else in the file can confound it: there is no recursion, no
+    `Prod`, no `ite` and no unfolding of any definition of ours.
+    """
+    lines = list(HEADER) + PROF + ["namespace FibFloor"]
+    for n in (1_000, 5_000, 20_000, 80_000, 150_000):
+        lines.append(calib_theorem(f"f{n}", n, raw))
+    lines.append("end FibFloor")
+    return lines
+
+
 def emit_calib(n: int) -> list[str]:
     """What does the arithmetic alone cost the kernel?
 
@@ -221,7 +288,9 @@ def emit_calib(n: int) -> list[str]:
     ks = chain(n)
     lines = list(HEADER) + PROF + ["namespace FibCalib"]
 
-    # One squaring and one general product at the top width, priced alone.
+    # One squaring and one general product at the top width, priced alone, so
+    # that the widest single operation in the whole computation has a figure
+    # of its own.
     a = fib_plain(ks[0])
     b = fib_plain(ks[0] + 1)
     lines.append(f"-- top width: {a.bit_length()} bits")
@@ -230,25 +299,9 @@ def emit_calib(n: int) -> list[str]:
     lines.append(f"theorem gen : (0x{a:X} * 0x{b:X}) % 0x{MOD:X} = "
                  f"{a * b % MOD} := by rfl")
 
-    # The whole product set of the specialised design, as one sum.
-    terms, total = [], 0
-    top = a * (2 * b - a) if n % 2 == 0 else a * a + b * b
-    terms.append(f"0x{a:X} * 0x{(2 * b - a) if n % 2 == 0 else a:X}")
-    total += a * ((2 * b - a) if n % 2 == 0 else a)
-    if n % 2 == 1:
-        terms.append(f"0x{b:X} * 0x{b:X}")
-        total += b * b
-    for k in ks[1:]:
-        x = fib_plain(k)
-        y = fib_plain(k + 1)
-        terms.append(f"0x{x:X} * 0x{2 * y - x:X}")
-        terms.append(f"0x{x:X} * 0x{x:X}")
-        terms.append(f"0x{y:X} * 0x{y:X}")
-        total += x * (2 * y - x) + x * x + y * y
-    _ = top
-    lines.append(f"-- {len(terms)} products, the specialised design's set")
-    lines.append(f"theorem allprod : ({' + '.join(terms)}) % 0x{MOD:X} = "
-                 f"{total % MOD} := by rfl")
+    # The whole product set of the specialised design, two ways.
+    lines.append(calib_theorem("allprod", n, raw=False))
+    lines.append(calib_theorem("allprodraw", n, raw=True))
     lines.append("end FibCalib")
     return lines
 
@@ -256,7 +309,8 @@ def emit_calib(n: int) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit", required=True,
-                    choices=["bulk", "decomp", "prof", "fuel", "calib"])
+                    choices=["bulk", "decomp", "prof", "fuel", "calib",
+                             "calibsweep", "calibsweepraw"])
     ap.add_argument("--count", type=int, default=16)
     ap.add_argument("--groups", default="f1,f2,f3")
     ap.add_argument("--group", default="f3")
@@ -279,6 +333,10 @@ def main() -> int:
         lines = emit_fuel(args.fuelmode, args.count)
     elif args.emit == "calib":
         lines = emit_calib(args.n)
+    elif args.emit == "calibsweep":
+        lines = emit_calibsweep(raw=False)
+    elif args.emit == "calibsweepraw":
+        lines = emit_calibsweep(raw=True)
     else:
         if args.group not in GROUPS:
             raise SystemExit(f"unknown group {args.group}")
