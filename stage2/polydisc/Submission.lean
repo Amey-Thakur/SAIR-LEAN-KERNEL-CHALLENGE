@@ -78,7 +78,7 @@ theorem exactDivide_eq (divisor : Int) :
   induction p with
   | nil => rfl
   | cons c cs ih =>
-    rw [exactDivide, exactDividePolynomial, guard_eq, ih]
+    simp only [exactDivide, exactDividePolynomial, guard_eq, ih]
 
 /-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
@@ -126,6 +126,7 @@ theorem resultantGo_eq : ∀ fuel initial f g,
     all_goals first
       | rfl
       | exact ih _ _ _
+      | simp only [ih]
       | simp [ih]
 
 def resultant (f g : List Int) : Option Int :=
