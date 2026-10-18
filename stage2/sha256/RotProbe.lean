@@ -92,10 +92,12 @@ theorem testBit_dbl {x : Nat} (hx : x < 2 ^ 32) (j : Nat) :
     have hd : decide (j < 32) = true := by simp [hj]
     rw [hd, Bool.true_and] at h
     rw [if_pos hj, h]
-  · have hk : j = 32 + (j - 32) := by omega
-    have h := Nat.testBit_shiftRight (i := 32) (j := j - 32) (dbl x)
+  · have h := Nat.testBit_shiftRight (i := 32) (j := j - 32) (dbl x)
     rw [dbl_shift x hx] at h
-    rw [if_neg hj, hk, ← h]
+    have hz : 32 + (j - 32) = j := by omega
+    rw [hz] at h
+    rw [if_neg hj]
+    exact h.symm
 
 /-- A rotation is one shift of the doubled word, and one mask. -/
 theorem rotr32_eq {x n : Nat} (hx : x < 2 ^ 32) (hn : 0 < n) (hn32 : n < 32) :
@@ -125,14 +127,18 @@ theorem rotr32_eq {x n : Nat} (hx : x < 2 ^ 32) (hn : 0 < n) (hn32 : n < 32) :
     rw [hd, Bool.false_and, Bool.false_and]
 
 /-- Masking distributes over exclusive or, which is what lets the three
-rotations of a sigma share one mask instead of carrying one each. -/
-theorem xor_and_w32 (a b : Nat) :
-    (a &&& w32) ^^^ (b &&& w32) = (a ^^^ b) &&& w32 := by
+rotations of a sigma share one mask instead of carrying one each. Stated for
+three terms because exclusive or is right-associated, so the three are not
+pairwise adjacent; the Boolean identity underneath is settled by decision. -/
+theorem xor3_and_w32 (a b c : Nat) :
+    (a &&& w32) ^^^ ((b &&& w32) ^^^ (c &&& w32))
+      = (a ^^^ b ^^^ c) &&& w32 := by
+  have key : ∀ p q r w : Bool,
+      (p && w) ^^ ((q && w) ^^ (r && w)) = (p ^^ q ^^ r) && w := by decide
   apply Nat.eq_of_testBit_eq
   intro j
-  rw [Nat.testBit_xor, Nat.testBit_and, Nat.testBit_and, Nat.testBit_and,
-      Nat.testBit_xor]
-  cases hw : (w32 : Nat).testBit j <;> simp [hw]
+  rw [Nat.testBit_xor, Nat.testBit_xor, Nat.testBit_and, Nat.testBit_and,
+      Nat.testBit_and, Nat.testBit_and, Nat.testBit_xor, Nat.testBit_xor, key]
 
 /-! ## The four sigmas, each in seven operations instead of fourteen -/
 
@@ -141,14 +147,14 @@ theorem bigSigma0_eq {x : Nat} (hx : x < 2 ^ 32) :
       = ((dbl x >>> 2) ^^^ (dbl x >>> 13) ^^^ (dbl x >>> 22)) &&& w32 := by
   rw [bigSigma0, rotr32_eq hx (by omega) (by omega),
       rotr32_eq hx (by omega) (by omega), rotr32_eq hx (by omega) (by omega),
-      xor_and_w32, xor_and_w32]
+      xor3_and_w32]
 
 theorem bigSigma1_eq {x : Nat} (hx : x < 2 ^ 32) :
     bigSigma1 x
       = ((dbl x >>> 6) ^^^ (dbl x >>> 11) ^^^ (dbl x >>> 25)) &&& w32 := by
   rw [bigSigma1, rotr32_eq hx (by omega) (by omega),
       rotr32_eq hx (by omega) (by omega), rotr32_eq hx (by omega) (by omega),
-      xor_and_w32, xor_and_w32]
+      xor3_and_w32]
 
 /-- The small sigmas end in a plain shift rather than a rotation. It is already
 below `2 ^ 32`, so masking it changes nothing and it joins the shared mask. -/
@@ -160,15 +166,15 @@ theorem shiftRight_and_w32 {x : Nat} (hx : x < 2 ^ 32) (k : Nat) :
 theorem smallSigma0_eq {x : Nat} (hx : x < 2 ^ 32) :
     smallSigma0 x
       = ((dbl x >>> 7) ^^^ (dbl x >>> 18) ^^^ (x >>> 3)) &&& w32 := by
+  have h3 : (x >>> 3) &&& w32 = x >>> 3 := shiftRight_and_w32 hx 3
   rw [smallSigma0, rotr32_eq hx (by omega) (by omega),
-      rotr32_eq hx (by omega) (by omega), ← shiftRight_and_w32 hx 3,
-      xor_and_w32, xor_and_w32]
+      rotr32_eq hx (by omega) (by omega), ← h3, xor3_and_w32, h3]
 
 theorem smallSigma1_eq {x : Nat} (hx : x < 2 ^ 32) :
     smallSigma1 x
       = ((dbl x >>> 17) ^^^ (dbl x >>> 19) ^^^ (x >>> 10)) &&& w32 := by
+  have h10 : (x >>> 10) &&& w32 = x >>> 10 := shiftRight_and_w32 hx 10
   rw [smallSigma1, rotr32_eq hx (by omega) (by omega),
-      rotr32_eq hx (by omega) (by omega), ← shiftRight_and_w32 hx 10,
-      xor_and_w32, xor_and_w32]
+      rotr32_eq hx (by omega) (by omega), ← h10, xor3_and_w32, h10]
 
 end Rot
