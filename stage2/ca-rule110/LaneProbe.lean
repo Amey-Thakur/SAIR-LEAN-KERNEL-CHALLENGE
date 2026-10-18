@@ -76,7 +76,7 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
     · -- the bit is in the newest lane, so everything before it is below
       have hik : i = k := by omega
       subst hik
-      rw [testBit_pack_high w f hf k (w * i + b) (by omega)]
+      rw [testBit_pack_high w f hf i (w * i + b) (by omega)]
       have hle : w * i ≤ w * i + b := by omega
       simp [hle]
 
