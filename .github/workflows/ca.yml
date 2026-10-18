@@ -106,6 +106,8 @@ jobs:
           lake build Spec
           cp ../../../stage2/ca-rule110/Probe.lean .
           lake env lean Probe.lean 2>&1 | tee ../../../probe.log || true
+          cp ../../../stage2/ca-rule110/LaneProbe.lean .
+          lake env lean LaneProbe.lean 2>&1 | tee ../../../laneprobe.log || true
           echo "--- names that did not resolve ---"
           grep -E "unknown (identifier|constant)" ../../../probe.log || echo "(none)"
 
@@ -191,4 +193,5 @@ jobs:
             build.log
             axioms.txt
             probe.log
+            laneprobe.log
           if-no-files-found: warn
