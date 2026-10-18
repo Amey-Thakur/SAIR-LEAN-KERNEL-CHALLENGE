@@ -129,32 +129,38 @@ theorem resultantGo_eq : ∀ fuel initial f g,
     cases hpr : pseudoRemainder f g with
     | none => rfl
     | some raw =>
+      try dsimp only
       by_cases hi : initial = true
-      · rw [if_pos hi]
+      · simp only [if_pos hi]
+        try dsimp only
         cases htr : trimLeading raw with
         | nil => rfl
         | cons a as =>
+          try dsimp only
           cases as with
           | nil => split <;> rfl
           | cons b bs =>
             by_cases hl : (a :: b :: bs).length + 1 = g.length
-            · rw [if_pos hl, if_pos hl]
+            · simp only [if_pos hl]
               exact ih false g (a :: b :: bs)
-            · rw [if_neg hl, if_neg hl]
-      · rw [if_neg hi]
+            · simp only [if_neg hl]
+      · simp only [if_neg hi]
+        try dsimp only
         cases hed : exactDividePolynomial (f.headD 0 ^ 2) raw with
         | none => rfl
         | some coeffs =>
+          try dsimp only
           cases htr : trimLeading coeffs with
           | nil => rfl
           | cons a as =>
+            try dsimp only
             cases as with
             | nil => split <;> rfl
             | cons b bs =>
               by_cases hl : (a :: b :: bs).length + 1 = g.length
-              · rw [if_pos hl, if_pos hl]
+              · simp only [if_pos hl]
                 exact ih false g (a :: b :: bs)
-              · rw [if_neg hl, if_neg hl]
+              · simp only [if_neg hl]
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
