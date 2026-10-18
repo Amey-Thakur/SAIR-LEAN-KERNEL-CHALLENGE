@@ -41,6 +41,8 @@ is never at risk while this is being built.
 #check @List.foldr_append
 #check @List.length_map
 #check @List.length_range
+#check @Nat.testBit_to_div_mod
+#check @Nat.pow_succ
 #check @Nat.testBit_and
 #check @Nat.testBit_xor
 #check @Nat.testBit_two_pow_sub_one
@@ -565,5 +567,79 @@ theorem encodeRow_map_range (g : Nat → Bool) :
         = pack 1 (fun i => if g i then 1 else 0) k
           + (if g k then 1 else 0) * 2 ^ (1 * k)
     rw [hone, Nat.mul_comm]
+
+/-! ## Reading one bit out of every lane
+
+The row wants bit 31 of each lane. That is `pack_shiftRight_and_mask` at
+`m = 1` and `s = 31`, since `1 + 31 ≤ 64`, and the mask is the all-ones
+packing. What comes back is each lane modulo two, which is the bit.
+-/
+
+theorem shiftRight_mod_two (x s : Nat) :
+    (x >>> s) % 2 = if x.testBit s then 1 else 0 := by
+  rw [Nat.shiftRight_eq_div_pow, Nat.testBit_to_div_mod]
+  by_cases h : x / 2 ^ s % 2 = 1
+  · rw [h]; simp
+  · have h0 : x / 2 ^ s % 2 = 0 := by omega
+    rw [h0]; simp
+
+/-! ## The payload, and why the merge tree is an induction
+
+Round `r` has gathered the cells in groups of `2 ^ r`, each group packed at
+the bottom of its field. Writing that group as `pack 1 b (2 ^ r)` — a
+width-one packing, the same object `encodeRow` turned out to be — is what
+makes the tree an induction: `pack_split` says a width-one packing of
+`2 ^ (r+1)` cells is its lower half plus its upper half shifted, which is
+exactly what one round produces.
+-/
+
+/-- The cells gathered at round `r`, group `j`. -/
+def payload (b : Nat → Nat) (r j : Nat) : Nat :=
+  pack 1 (fun t => b (2 ^ r * j + t)) (2 ^ r)
+
+theorem payload_lt {b : Nat → Nat} (hb : ∀ k, b k < 2) (r j : Nat) :
+    payload b r j < 2 ^ 2 ^ r := by
+  have h := pack_lt 1 (fun t => b (2 ^ r * j + t)) (fun t => hb _) (2 ^ r)
+  rw [Nat.one_mul] at h
+  exact h
+
+theorem payload_zero (b : Nat → Nat) (j : Nat) : payload b 0 j = b j := by
+  show 0 + b (1 * j + 0) * 2 ^ (1 * 0) = b j
+  rw [Nat.one_mul, Nat.add_zero, Nat.mul_zero, Nat.pow_zero, Nat.mul_one,
+      Nat.zero_add]
+
+theorem payload_succ (b : Nat → Nat) (r j : Nat) :
+    payload b (r + 1) j
+      = payload b r (2 * j) + payload b r (2 * j + 1) * 2 ^ 2 ^ r := by
+  have hsplit : (2 : Nat) ^ (r + 1) = 2 ^ r + 2 ^ r := by
+    rw [Nat.pow_succ]; omega
+  have hlo : ∀ t, b (2 ^ (r + 1) * j + t) = b (2 ^ r * (2 * j) + t) := by
+    intro t
+    have he : (2 : Nat) ^ (r + 1) * j = 2 ^ r * (2 * j) := by
+      rw [Nat.pow_succ, Nat.mul_assoc]
+    rw [he]
+  have hhi : ∀ t, b (2 ^ (r + 1) * j + (2 ^ r + t))
+      = b (2 ^ r * (2 * j + 1) + t) := by
+    intro t
+    have he : (2 : Nat) ^ (r + 1) * j + 2 ^ r = 2 ^ r * (2 * j + 1) := by
+      rw [Nat.mul_add, Nat.mul_one, Nat.pow_succ, Nat.mul_assoc]
+    rw [← Nat.add_assoc, he]
+  rw [payload, hsplit,
+      pack_split 1 (fun t => b (2 ^ (r + 1) * j + t)) (2 ^ r) (2 ^ r),
+      Nat.one_mul, payload, payload,
+      pack_congr 1 (2 ^ r) (fun t _ => hlo t),
+      pack_congr 1 (2 ^ r) (fun t _ => hhi t)]
+
+/-- A packing of one lane is that lane. This is what makes the eighth round
+the answer rather than a step towards it. -/
+theorem pack_one (w : Nat) (f : Nat → Nat) : pack w f 1 = f 0 := by
+  show 0 + f 0 * 2 ^ (w * 0) = f 0
+  rw [Nat.mul_zero, Nat.pow_zero, Nat.mul_one, Nat.zero_add]
+
+/-- After eight rounds the single remaining group is the whole row. -/
+theorem payload_eight (b : Nat → Nat) :
+    payload b 8 0 = pack 1 b 256 := by
+  show pack 1 (fun t => b (256 * 0 + t)) 256 = pack 1 b 256
+  exact pack_congr 1 256 (fun t _ => by rw [Nat.mul_zero, Nat.zero_add])
 
 end Lane
