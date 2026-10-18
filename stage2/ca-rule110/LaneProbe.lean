@@ -35,6 +35,15 @@ is never at risk while this is being built.
 #check @Nat.div_lt_iff_lt_mul
 #check @Nat.mod_lt
 #check @Nat.mul_right_comm
+#check @Nat.testBit_and
+#check @Nat.testBit_xor
+#check @Nat.testBit_two_pow_sub_one
+#check @Nat.testBit_shiftRight
+#check @Nat.xor_lt_two_pow
+#check @Nat.and_lt_two_pow
+#check @Nat.shiftRight_le
+#check @Nat.mul_mod
+#check @Nat.shiftRight_lt_two_pow
 
 namespace Lane
 
@@ -168,5 +177,92 @@ theorem eq_of_lanes {w n x y : Nat} (hw : 0 < w)
     exact h _ _ hi hb
   · -- above the lanes: both sides are zero, by the bound each one carries
     rw [testBit_eq_false_of_lt_pow hx hj, testBit_eq_false_of_lt_pow hy hj]
+
+/-! ## Masking, xor and shifting, one lane at a time
+
+These three are the whole bit-level toolkit, and between them they cover
+every operation `caMix32` performs and every operation the gather performs.
+Each is proved the same way: `eq_of_lanes` reduces the claim to one bit of
+one lane, `testBit_pack` turns each packing into its lane, and a core
+`testBit` lemma finishes it.
+
+The mask is itself a packing, of the constant `2 ^ m - 1`. That is the point:
+a mask written as one `Nat` literal would not be lane-local, and `% 2 ^ m` on
+the whole packed number would clear every lane but the lowest.
+-/
+
+/-- Masking to `m` bits keeps each lane modulo `2 ^ m`. -/
+theorem pack_and_mask {w m n : Nat} (f : Nat → Nat) (hw : 0 < w) (hm : m ≤ w)
+    (hf : ∀ k, f k < 2 ^ w) :
+    pack w f n &&& pack w (fun _ => 2 ^ m - 1) n
+      = pack w (fun k => f k % 2 ^ m) n := by
+  have hle : (2 : Nat) ^ m ≤ 2 ^ w := Nat.pow_le_pow_right (by omega) hm
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ m - 1 < 2 ^ w := by
+    intro _
+    have := Nat.two_pow_pos m
+    omega
+  have hres : ∀ k, f k % 2 ^ m < 2 ^ w := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
+  refine eq_of_lanes hw
+    (Nat.lt_of_le_of_lt (Nat.and_le_left _ _) (pack_lt w f hf n))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack w f hf n i b hbw hin,
+      testBit_pack w _ hmask n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow]
+  exact Bool.and_comm _ _
+
+/-- Exclusive or acts lane by lane. -/
+theorem pack_xor {w n : Nat} (f g : Nat → Nat) (hw : 0 < w)
+    (hf : ∀ k, f k < 2 ^ w) (hg : ∀ k, g k < 2 ^ w) :
+    pack w f n ^^^ pack w g n = pack w (fun k => f k ^^^ g k) n := by
+  have hres : ∀ k, (f k ^^^ g k) < 2 ^ w := fun k =>
+    Nat.xor_lt_two_pow (hf k) (hg k)
+  refine eq_of_lanes hw
+    (Nat.xor_lt_two_pow (pack_lt w f hf n) (pack_lt w g hg n))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_xor,
+      testBit_pack w f hf n i b hbw hin,
+      testBit_pack w g hg n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_xor]
+
+/-- A right shift of the whole packing, masked back to `m` bits, is a right
+shift inside every lane. The mask is what makes this true rather than nearly
+true: shifting right by `s` drags the bottom `s` bits of lane `k + 1` into
+the top of lane `k`, and `m + s ≤ w` is exactly the condition that the mask
+discards them. -/
+theorem pack_shiftRight_and_mask {w m s n : Nat} (f : Nat → Nat) (hw : 0 < w)
+    (hms : m + s ≤ w) (hf : ∀ k, f k < 2 ^ w) :
+    (pack w f n >>> s) &&& pack w (fun _ => 2 ^ m - 1) n
+      = pack w (fun k => (f k >>> s) % 2 ^ m) n := by
+  have hle : (2 : Nat) ^ m ≤ 2 ^ w := Nat.pow_le_pow_right (by omega) (by omega)
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ m - 1 < 2 ^ w := by
+    intro _
+    have := Nat.two_pow_pos m
+    omega
+  have hres : ∀ k, (f k >>> s) % 2 ^ m < 2 ^ w := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos m)) hle
+  refine eq_of_lanes hw
+    (Nat.lt_of_le_of_lt (Nat.and_le_left _ _)
+      (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ s) (pack_lt w f hf n)))
+    (pack_lt w _ hres n) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack w _ hmask n i b hbw hin,
+      testBit_pack w _ hres n i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow,
+      Nat.testBit_shiftRight, Nat.testBit_shiftRight]
+  by_cases hbm : b < m
+  · -- inside the mask, so the shifted bit is a bit of this same lane
+    have hidx : s + (w * i + b) = w * i + (b + s) := by omega
+    have hlt : b + s < w := by omega
+    rw [hidx, testBit_pack w f hf n i (b + s) hlt hin, Nat.add_comm s b]
+    simp [hbm]
+  · -- outside the mask, so both sides are false whatever the bit was
+    simp [hbm]
 
 end Lane
