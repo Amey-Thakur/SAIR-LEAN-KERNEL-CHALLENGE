@@ -264,4 +264,83 @@ theorem pack_shiftRight_and_mask {w m s n : Nat} (f : Nat → Nat) (hw : 0 < w)
   · -- outside the mask, so both sides are false whatever the bit was
     simp [hbm]
 
+/-! ## The mixer, one lane at a time
+
+`caMix32` masks to 32 bits *after* each multiply. The packed computation
+cannot: an unmasked lane is 41 bits wide, and 41 bits times a 31-bit constant
+is 72 bits, which still fits a 128-bit lane, but the *shifted* copy carries
+the neighbour lane's bits at the top of the lane and those would be dragged
+across the boundary by the multiply. So the packed form masks *before* the
+multiply as well, and the two agree only because
+`(a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m`.
+
+That identity, and the fact that the extra mask after the shift is a no-op on
+a lane narrow enough, are the entire distance between `caMix32` and what the
+packed arithmetic computes. Both are proved here, scalar, before any packing
+is involved.
+-/
+
+/-- Masking before a multiply and masking after it agree. -/
+theorem mul_mod_pow (a c m : Nat) :
+    (a % 2 ^ m * c) % 2 ^ m = (a * c) % 2 ^ m := by
+  rw [Nat.mul_mod, Nat.mod_eq_of_lt (Nat.mod_lt a (Nat.two_pow_pos m)),
+      ← Nat.mul_mod]
+
+/-- Masking after a shift is a no-op when the lane was narrow enough, which
+is the only reason the packed form may insert it. -/
+theorem shiftRight_mod_eq {x s m : Nat} (hx : x < 2 ^ (m + s)) :
+    (x >>> s) % 2 ^ m = x >>> s := by
+  apply Nat.mod_eq_of_lt
+  rw [Nat.shiftRight_eq_div_pow, Nat.div_lt_iff_lt_mul (Nat.two_pow_pos s),
+      ← Nat.pow_add]
+  exact hx
+
+/-- The specification's mask, as a remainder. -/
+theorem and_mask_eq_mod (x m : Nat) : x &&& (2 ^ m - 1) = x % 2 ^ m := by
+  apply Nat.eq_of_testBit_eq
+  intro j
+  rw [Nat.testBit_and, Nat.testBit_two_pow_sub_one, Nat.testBit_mod_two_pow]
+  exact Bool.and_comm _ _
+
+example : (0xffffffff : Nat) = 2 ^ 32 - 1 := by rfl
+
+/-- One xor-shift-multiply stage with the mask moved in front of the
+multiply, which is what the packed arithmetic can do. -/
+def stage (s c x : Nat) : Nat :=
+  ((x ^^^ ((x >>> s) % 2 ^ 32)) % 2 ^ 32 * c) % 2 ^ 32
+
+/-- The same stage as the specification writes it. -/
+def stageSpec (s c x : Nat) : Nat :=
+  ((x ^^^ (x >>> s)) * c) % 2 ^ 32
+
+theorem stage_lt (s c x : Nat) : stage s c x < 2 ^ 32 :=
+  Nat.mod_lt _ (Nat.two_pow_pos 32)
+
+theorem stage_eq {s c x : Nat} (hx : x < 2 ^ (32 + s)) :
+    stage s c x = stageSpec s c x := by
+  rw [stage, stageSpec, shiftRight_mod_eq hx, mul_mod_pow]
+
+/-- `caMix32` written the way the packed arithmetic computes it. -/
+def mixLane (x : Nat) : Nat :=
+  let d := stage 15 0x846ca68b (stage 16 0x7feb352d x)
+  (d ^^^ ((d >>> 16) % 2 ^ 32)) % 2 ^ 32
+
+/-- The two agree on every lane the initial row can produce. The hypothesis
+is generous: a lane holds `seed + (i + 1) * 0x9e3779b9` with `seed < 2 ^ 32`
+and `i + 1 ≤ 256`, hence less than `2 ^ 41`. -/
+theorem mixLane_eq {x : Nat} (hx : x < 2 ^ 48) : mixLane x = caMix32 x := by
+  have hwiden : ∀ {a j : Nat}, a < 2 ^ 32 → 32 ≤ j → a < 2 ^ j := by
+    intro a j ha hj
+    exact Nat.lt_of_lt_of_le ha (Nat.pow_le_pow_right (by omega) hj)
+  have hb : stage 16 0x7feb352d x < 2 ^ 32 := stage_lt _ _ _
+  have hd : stage 15 0x846ca68b (stage 16 0x7feb352d x) < 2 ^ 32 :=
+    stage_lt _ _ _
+  have hlit : (0xffffffff : Nat) = 2 ^ 32 - 1 := by rfl
+  simp only [mixLane, caMix32]
+  rw [shiftRight_mod_eq (hwiden hd (by omega)),
+      stage_eq (hwiden hb (by omega)),
+      stage_eq (show x < 2 ^ (32 + 16) from hx),
+      stageSpec, stageSpec, hlit,
+      and_mask_eq_mod, and_mask_eq_mod, and_mask_eq_mod]
+
 end Lane
