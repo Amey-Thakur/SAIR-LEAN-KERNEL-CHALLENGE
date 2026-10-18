@@ -13,43 +13,46 @@ folder holds entries for the actual problems.
 
 ## What is live, on all eight problems
 
-Verified 16 October 2026 against the board published that morning. Every
-problem carries this repository's best entry; there is nothing prepared here
-that has not been sent.
+Verified against the board published 17 October 2026. Every problem carries
+this repository's best entry; nothing prepared here is unsent.
 
-| Problem | Live entry | Submission | Rank | Instructions | vs leader |
+| Problem | Live entry | Submission | Rank | Instructions | x to rank 3 |
 |---|---|---:|---:|---:|---:|
-| `partition` | `partition/SubmissionPacked.lean` | 1103 | 25/40 | 131,411,775 | 91.9x |
-| `fib` | starter, unmodified | 687 | 41/43 | 96,245,398 | 13.9x |
-| `polydisc` | starter, unmodified | 692 | 27/31 | 10,318,705,860 | 12.9x |
-| `ca-rule110` | `ca-rule110/Submission.lean` | 694 | 32/37 | 2,155,958,695 | 686.5x |
-| `primecount` | `primecount/Submission.lean` | 697 | 32/32 | 6,611,464,244 | 4574.1x |
-| `mertens` | `mertens/Submission.lean` | 699 | 30/30 | 8,458,975,117 | 5430.5x |
-| `sha256` | `sha256/Submission.lean` | 700 | 27/32 | 151,050,452,571 | 16.1x |
-| `permanent` | `permanent/Submission.lean` | 701 | 31/34 | 208,233,663,818 | 7067.6x |
+| `polydisc` | starter, unmodified | 692 | 33/33 | 10,321,620,511 | **9.2** |
+| `fib` | starter, unmodified | 687 | 47/47 | 96,286,901 | **13.4** |
+| `sha256` | `sha256/Submission.lean` | 700 | 30/35 | 151,049,224,266 | **15.0** |
+| `partition` | `partition/SubmissionPacked.lean` | 1103 | 28/43 | 131,414,027 | 90.7 |
+| `ca-rule110` | `ca-rule110/Submission.lean` | 694 | 34/39 | 2,155,396,166 | 652 |
+| `primecount` | `primecount/Submission.lean` | 697 | 34/34 | 6,614,390,870 | 4,498 |
+| `permanent` | `permanent/Submission.lean` | 701 | 32/35 | 208,166,925,573 | 4,994 |
+| `mertens` | `mertens/Submission.lean` | 699 | 32/32 | 8,450,194,815 | 5,321 |
 
-All eight complete every judged case: coverage is 6/6, and 15/15 on
-`permanent`.
+All eight complete every judged case: coverage 6/6, and 15/15 on `permanent`.
 
-**How this was established, and why it needed establishing.** The API has no
-way to read a submission back. `GET /submissions` and
-`GET /submissions/{id}` both answer `405 Method Not Allowed`, so the board's
-submission id is the only thing it will tell you, and an id does not say
-which file produced it. `submit.py` derives its idempotency key from the
-submission text, so re-sending a file that is already live returns the stored
-submission instead of creating one. Replaying each file that way is therefore
-a read, not a write: five answered `200` naming exactly the id the board
-ranks, and `fib` and `polydisc` answered `409 IDEMPOTENCY_CONFLICT`, meaning
-the same text was already used for a submission, which settles those two as
-well. `whatsliv.py` reproduces the check.
+**Read the last column, not the rank.** Distance to the leader and distance to
+rank three are not proportional, and the rank alone is misleading: `polydisc`
+is last of 33 and is the closest problem on the board to a podium, while
+`ca-rule110` is 34th of 39 and is two orders of magnitude further away. The
+three problems at the top of the table are the only ones where a podium is a
+constant-factor argument rather than a new algorithm.
 
-**Where the headroom is.** Four entries are two to four orders of magnitude
-off their leader: `permanent` at 7,067x, `mertens` at 5,430x, `primecount` at
-4,574x and `ca-rule110` at 686x. Those are design gaps, not tuning gaps, and
-they are the only places left where work changes the standing. `fib` and
-`polydisc` still carry the shipped starter because neither admits a kernel
-reduction worth the name; `sha256` and `polydisc` sit within about 16x of
-their leaders, where the remaining distance is small.
+**How the live entry is identified.** The API will not read a submission back:
+`GET /submissions` and `GET /submissions/{id}` both answer `405`, so the board
+gives an id and nothing that maps it to a file. `submit.py` derives its
+idempotency key from the submission text, so re-sending a file that is already
+live is a read rather than a write: `200` returns the stored submission and
+creates nothing, `409 IDEMPOTENCY_CONFLICT` means that text was already used
+with a different note, and only `201` creates. `whatsliv.py` runs the check.
+
+### What has been ruled out
+
+| Problem | Hypothesis | Measured | Verdict |
+|---|---|---|---|
+| `ca-rule110` | the stepping dominates, so the initial row is not worth optimising | judged cases ask at most 13 steps: the row is 5,348 of 5,465 operations | **false**, and it is the whole of the gap. `lanes.py` settles a 54x replacement |
+| `fib` | `p.2 ^ 2` goes through `Monoid.npow`, and `Nat.binaryRec` is costly | both designs reduce `n = 150000` in 0.34 s of work, within 2% | **false**; neither suspect is real |
+
+Negative results are kept rather than deleted. Each removes an explanation for
+a gap, which is the only thing that makes the next attempt cheaper.
 
 ## What is here
 
