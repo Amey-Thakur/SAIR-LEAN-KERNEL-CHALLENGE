@@ -79,6 +79,9 @@ theorem exactDivide_eq (divisor : Int) :
   | nil => rfl
   | cons c cs ih =>
     simp only [exactDivide, exactDividePolynomial, guard_eq, ih]
+    -- what is left is the same match under two auto-generated matchers,
+    -- which only full transparency sees through
+    all_goals rfl
 
 /-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
@@ -127,6 +130,7 @@ theorem resultantGo_eq : ∀ fuel initial f g,
       | rfl
       | exact ih _ _ _
       | simp only [ih]
+      | simp_all
       | simp [ih]
 
 def resultant (f g : List Int) : Option Int :=
