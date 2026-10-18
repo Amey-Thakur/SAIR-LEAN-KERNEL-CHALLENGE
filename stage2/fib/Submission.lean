@@ -80,8 +80,7 @@ theorem fibAux_eq : ∀ fuel n, n ≤ fuel →
       set k := n / 2 with hk
       by_cases hodd : n % 2 = 1
       · have hn2 : n = 2 * k + 1 := by omega
-        simp only [hodd, if_pos]
-        rw [hn2]
+        rw [if_pos hodd, hn2]
         have h1 : Nat.fib (2 * k + 1) = Nat.fib k * Nat.fib k
             + Nat.fib (k + 1) * Nat.fib (k + 1) := by
           rw [Nat.fib_two_mul_add_one]; ring
@@ -93,8 +92,7 @@ theorem fibAux_eq : ∀ fuel n, n ≤ fuel →
               Nat.fib_two_mul, h1]
         simp [h1, h2]
       · have hn2 : n = 2 * k := by omega
-        simp only [hodd, if_neg, if_false]
-        rw [hn2]
+        rw [if_neg hodd, hn2]
         have h1 : Nat.fib (2 * k)
             = Nat.fib k * (2 * Nat.fib (k + 1) - Nat.fib k) :=
           Nat.fib_two_mul k
