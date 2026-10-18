@@ -128,11 +128,32 @@ jobs:
             --cases ../../../stage2/${{ matrix.problem }}/cases.json \
             --label candidate --out ../../../candidate-times.json
 
+      # One case per process, against a 31,348-digit expected literal, cannot
+      # resolve a change in `fib`: start-up is 1.74 s of every figure and the
+      # literal is parsed identically by every candidate. This step decomposes
+      # that figure and then times each design in bulk against a right-hand
+      # side that costs nothing to read. It restores the shipped starter when
+      # it finishes, so the steps after it see what they saw before.
+      - name: fib — measure each design where the computation is visible
+        if: matrix.problem == 'fib'
+        continue-on-error: true
+        working-directory: upstream/problems/fib
+        run: bash ../../../stage2/fib/measure.sh ../../..
+
       - name: Report
         if: always()
         run: |
           {
             echo "### ${{ matrix.problem }}"
+            if [ -f fib-kernel.tsv ]; then
+              echo ''
+              echo "fib kernel time, which is the judged boundary:"
+              echo '```'; cat fib-kernel.tsv; echo '```'
+            fi
+            if [ -f fib-measure.tsv ]; then
+              echo ''; echo "fib whole-process wall-clock, as a cross-check:"
+              echo '```'; cat fib-measure.tsv; echo '```'
+            fi
             python stage2/report_times.py starter-times.json candidate-times.json 2>/dev/null \
               || echo "(no timings)"
             if [ -f axioms.txt ]; then echo ''; echo "axioms:"; cat axioms.txt; fi
@@ -155,4 +176,8 @@ jobs:
             candidate-times.json
             axioms.txt
             probe.log
+            fib-measure.tsv
+            fib-kernel.tsv
+            fib-cases-CandidateRaw.json
+            fib-logs/
           if-no-files-found: warn
