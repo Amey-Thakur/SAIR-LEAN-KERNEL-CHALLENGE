@@ -60,15 +60,17 @@ already identical. -/
 theorem guard_eq (c divisor : Int) :
     (divisor == 0 || c / divisor * divisor != c)
       = (divisor == 0 || c % divisor != 0) := by
-  by_cases hz : divisor = 0
-  · simp [hz]
-  · by_cases h : c % divisor = 0
-    · have h1 : c / divisor * divisor = c :=
-        Int.ediv_mul_cancel_of_emod_eq_zero h
-      simp [hz, h, h1]
-    · have hne : ¬ (c / divisor * divisor = c) := fun hh =>
-        h ((emod_zero_iff c divisor).mpr hh)
-      simp [hz, h, hne]
+  by_cases h : c % divisor = 0
+  · have h1 : c / divisor * divisor = c :=
+      Int.ediv_mul_cancel_of_emod_eq_zero h
+    have e1 : (c / divisor * divisor != c) = false := by simp [h1]
+    have e2 : (c % divisor != 0) = false := by simp [h]
+    rw [e1, e2]
+  · have hne : ¬ (c / divisor * divisor = c) := fun hh =>
+      h ((emod_zero_iff c divisor).mpr hh)
+    have e1 : (c / divisor * divisor != c) = true := by simp [hne]
+    have e2 : (c % divisor != 0) = true := by simp [h]
+    rw [e1, e2]
 
 theorem exactDivide_eq (divisor : Int) :
     ∀ p, exactDivide divisor p = exactDividePolynomial divisor p := by
