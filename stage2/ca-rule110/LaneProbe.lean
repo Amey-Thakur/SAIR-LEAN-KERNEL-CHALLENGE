@@ -556,8 +556,7 @@ theorem encodeRow_map_range (g : Nat → Bool) :
   | zero => rfl
   | succ k ih =>
     have hone : (1 : Nat) * k = k := Nat.one_mul k
-    have hlast : encodeRow [g k] = (if g k then 1 else 0) := by
-      rw [encodeRow_cons]
+    have hlast : encodeRow (List.map g [k]) = (if g k then 1 else 0) := by
       simp [encodeRow]
     rw [List.range_succ, List.map_append, encodeRow_append, ih,
         List.length_map, List.length_range, hlast]
