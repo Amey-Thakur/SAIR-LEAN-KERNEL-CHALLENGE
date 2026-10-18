@@ -137,6 +137,91 @@ def bound_track(n: int) -> tuple[int, int, int]:
             mg.bit_length() - true_max.bit_length())
 
 
+def packed_run(n: int) -> tuple[int | None, int, int]:
+    """The subresultant loop done on packed integers, end to end.
+
+    This is the design the measurements point at: the coefficient list is
+    carried as `P(B)` for a power-of-two base `B`, the whole step is
+
+        R = (A * F - B' * G * B - C * G) / f0^2
+
+    three multiplications, two differences and one division on ONE integer
+    instead of seven operations per coefficient, and the leading and second
+    coefficients are recovered by division when the bound permits it.
+
+    The base cannot be fixed before the run: an a priori bound on the final
+    coefficient needs a Hadamard-style argument, and propagating one from the
+    input alone compounds doubly exponentially. It can be fixed ADAPTIVELY,
+    starting from the input bound and doubling whenever the propagated bound
+    outgrows half the base, which costs one unpack and one repack when it
+    happens. This returns the resultant, the number of rebasings, and the
+    final slot width, so the cost of that can be counted rather than guessed.
+    """
+    from model import kbits_of
+
+    def pack(coeffs: list[int], slot: int) -> int:
+        acc = 0
+        for c in coeffs:                      # high to low, Horner
+            acc = (acc << slot) + c
+        return acc
+
+    def unpack(x: int, length: int, slot: int) -> list[int]:
+        half = 1 << (slot - 1)
+        out = []
+        for _ in range(length):               # balanced digits, low to high
+            d = x % (1 << slot)
+            if d >= half:
+                d -= 1 << slot
+            out.append(d)
+            x = (x - d) >> slot
+        return out[::-1]
+
+    p = poly_of(n)
+    f, g = trim_leading(p), trim_leading(deriv_hl(p))
+    k = kbits_of(n)
+    mf, mg = 2 ** (k - 1), 24 * 2 ** (k - 1)
+    slot = 2 * mg.bit_length() + 2
+    rebase = 0
+    fl, gl = len(f), len(g)
+    F, G = pack(f, slot), pack(g, slot)
+    while True:
+        if gl == 1:
+            return unpack(G, 1, slot)[0], rebase, slot
+        if gl < 1 or fl != gl + 1:
+            return None, rebase, slot
+        # the two leading coefficients of each side, which is what the bound
+        # buys: one division and one remainder apiece in a real implementation
+        f0, f1 = unpack(F, fl, slot)[:2]
+        g0, g1 = unpack(G, gl, slot)[:2]
+        if f0 == 0 or g0 == 0:
+            return None, rebase, slot
+        A, Bp, C = g0 * g0, g0 * f0, g0 * f1 - f0 * g1
+        if C == 0:
+            return None, rebase, slot
+        sq = f0 * f0
+        # The step, on one integer. The alignment is the whole trick: the `A`
+        # term takes f without its leading coefficient, the `B'` term takes g
+        # without its leading coefficient shifted up one slot, and the `C`
+        # term takes g ENTIRE -- that last one is what makes the top slot
+        # vanish, since A*f1 - B'*g1 - C*g0 is identically zero. Taking g's
+        # tail there instead leaves g0*C behind in the top slot, which is the
+        # mistake this file was written to catch.
+        ftail = F - (f0 << (slot * (fl - 1)))
+        gtail = G - (g0 << (slot * (gl - 1)))
+        num = A * ftail - Bp * (gtail << slot) - C * G
+        if num % sq != 0:
+            return None, rebase, slot
+        R, rl = num // sq, gl - 1
+        mr = ((abs(A) + abs(Bp) + abs(C)) * max(mf, mg) + sq - 1) // sq
+        F, G, fl, gl, mf, mg = G, R, gl, rl, mg, mr
+        # and rebase both sides when the bound has outgrown half a slot
+        if mg.bit_length() + 2 > slot:
+            fc, gc = unpack(F, fl, slot), unpack(G, gl, slot)
+            slot = 2 * mg.bit_length() + 2
+            F, G = pack(fc, slot), pack(gc, slot)
+            rebase += 1
+
+
 def main() -> int:
     agree = disagree = guarded = 0
     for n in JUDGED:
@@ -180,6 +265,20 @@ def main() -> int:
 
     print(f"\n  steps agreeing {agree}, disagreeing {disagree}, "
           f"guard refusals {guarded}")
+
+    print()
+    print("  the same loop done on packed integers, end to end")
+    print(f"      {'case':>8} {'resultant':>12} {'rebasings':>10} "
+          f"{'final slot':>11}")
+    for n in JUDGED:
+        value, rebase, slot = packed_run(n)
+        want = normal_resultant(trim_leading(poly_of(n)),
+                                trim_leading(deriv_hl(poly_of(n))))
+        verdict = "agrees" if value == want else f"WRONG {str(value)[:20]}"
+        print(f"      2^{n.bit_length() - 1:<6} {verdict:>12} {rebase:>10} "
+              f"{slot:>11,}")
+        if value != want:
+            return 1
 
     print()
     print("  how wide a slot a packed loop must reserve, if the bound is "

@@ -67,16 +67,17 @@ theorem scalePolynomial_one : ∀ p, scalePolynomial 1 p = p := by
 theorem scaleP_eq (factor : Int) (p : List Int) :
     scaleP factor p = scalePolynomial factor p := by
   by_cases h : (factor == 1) = true
-  · -- every name that turns `(a == b) = true` into `a = b` is a guess without
-    -- a toolchain, so the three plausible ones are tried in order
-    have hf : factor = 1 := by
-      first
-        | exact eq_of_beq h
-        | exact of_decide_eq_true h
-        | (simp only [beq_iff_eq] at h; exact h)
-        | (simpa using h)
-    simp only [scaleP, if_pos h, hf, scalePolynomial_one]
-  · simp only [scaleP, if_neg h]
+  · have hf : factor = 1 := eq_of_beq h
+    -- the order matters and `simp only` gets it wrong: rewriting `factor` to
+    -- one first turns the condition into `1 == 1`, which leaves `if c then p
+    -- else p` with no rule to collapse it and makes `if_pos h` unused, which
+    -- this package reports as an error. `rw` takes the branch first.
+    show (if factor == 1 then p else scalePolynomial factor p)
+        = scalePolynomial factor p
+    rw [if_pos h, hf, scalePolynomial_one]
+  · show (if factor == 1 then p else scalePolynomial factor p)
+        = scalePolynomial factor p
+    rw [if_neg h]
 
 /-! ## The pseudo-remainder, with that scaling guarded
 

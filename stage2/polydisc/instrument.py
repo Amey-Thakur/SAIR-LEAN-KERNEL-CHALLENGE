@@ -452,9 +452,11 @@ IREFS = re.compile(r"I\s+refs:\s+([\d,]+)")
 
 
 def failed(path: pathlib.Path) -> bool:
-    """A log carrying a Lean error is not a measurement of anything."""
+    """A log carrying a Lean error is not a measurement of anything. A log that
+    is not there at all was simply outside this run's scope, which is a
+    different thing and must not be reported as a failure."""
     if not path.exists():
-        return True
+        return False
     text = path.read_text(errors="replace")
     return ("error:" in text) or ("MEASUREFAILED" in text)
 

@@ -31,6 +31,11 @@ on:
         type: choice
         default: both
         options: [both, wall, instructions]
+      scope:
+        description: "which benchmarks the instrument runs"
+        type: choice
+        default: judged
+        options: [judged, round2, all]
 
 permissions:
   contents: read
@@ -285,9 +290,11 @@ jobs:
       # in one probe cannot cost the whole table.
       - name: Count instructions, starter
         working-directory: upstream/problems/polydisc
+        env:
+          SCOPE: ${{ inputs.scope || 'judged' }}
         run: |
           cp ../../../stage2/polydisc/runbench.sh .
-          bash runbench.sh bench 3300 "${SCOPE:-round2}"
+          bash runbench.sh bench 3300 "$SCOPE"
           cp -r bench ../../../bench-starter
 
       - name: Report, starter
@@ -352,6 +359,11 @@ jobs:
             echo '```'
             cat instrument-candidate.txt 2>/dev/null || true
             echo '```'
+            if [ -f candidate2-build.log ] \
+               && grep -q "^error" candidate2-build.log; then
+              echo ''; echo "the candidate did not build:"; echo '```'
+              grep -E "error" candidate2-build.log | head -40; echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -361,6 +373,8 @@ jobs:
           path: |
             instrument-starter.txt
             instrument-candidate.txt
+            candidate2-build.log
+            axioms2.txt
             bench-starter/*.out
             bench-candidate/*.out
             bench-starter/manifest.json
