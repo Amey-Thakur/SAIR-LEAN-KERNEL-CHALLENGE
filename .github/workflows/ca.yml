@@ -111,6 +111,32 @@ jobs:
           echo "--- names that did not resolve ---"
           grep -E "unknown (identifier|constant)" ../../../probe.log || echo "(none)"
 
+      # The remaining Lean work for the lane design is a few hundred lines,
+      # and every line of it is wasted if the kernel does not in fact reduce
+      # the packed form faster. So the implementation is measured before it is
+      # proved. These files carry no proof: each asserts the row for eight
+      # seeds against a value computed in Python, by `rfl`, so the clock is
+      # measuring kernel arithmetic and nothing else.
+      #
+      # Three files, because about a second of each figure is Lean start-up
+      # and the baseline measures exactly that. The lane width here is 64 and
+      # not the 128 lanes.py uses: masking before the multiply rather than
+      # after caps the widest intermediate at 63 bits, which halves every
+      # operand, and gentime.py checks the two agree on 2,008 seeds.
+      - name: Time the packed row against the specification route
+        continue-on-error: true
+        working-directory: upstream/problems/ca-rule110
+        run: |
+          lake build Spec
+          for which in none spec packed; do
+            python ../../../stage2/ca-rule110/gentime.py --cases "$which"               > "Bench_$which.lean"
+            /usr/bin/time -f "$which %e s" lake env lean "Bench_$which.lean"               >> ../../../lanetime.log 2>&1 || true
+          done
+          echo "=== kernel reduction, eight seeds per file ==="
+          grep -E "^(none|spec|packed) " ../../../lanetime.log || true
+          echo "=== any error ==="
+          grep -iE "error" ../../../lanetime.log | head -10 || echo "(none)"
+
       - name: Place the candidate in the real problem package
         run: |
           cp stage2/ca-rule110/Submission.lean upstream/problems/ca-rule110/Submission.lean
@@ -194,4 +220,5 @@ jobs:
             axioms.txt
             probe.log
             laneprobe.log
+            lanetime.log
           if-no-files-found: warn
