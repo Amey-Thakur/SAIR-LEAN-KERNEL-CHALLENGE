@@ -67,8 +67,17 @@ job are used. Three independent runs:
 Milliseconds of kernel time per case; the judged total is `2 × (f1 + f2 + f3)`,
 the plan's two cases per group. Run
 [`39171426699`](https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE/actions/runs/39171426699).
-`CandidateRaw` measured 2.18x in run `39169669760` and 2.02x in
-`39170346845`: **2.0x, reproduced three times.**
+`CandidateRaw` measured 2.18x in run `39169669760`, 2.02x in `39170346845`
+and 2.10x in
+[`39172182085`](https://github.com/Amey-Thakur/SAIR-LEAN-KERNEL-CHALLENGE/actions/runs/39172182085):
+**2.0x, reproduced in four independent runs, range 1.87x to 2.18x.**
+
+That last run also puts `CandidateRaw` through `timecases.py`, the slow
+harness, on all thirteen cases — the six judged sizes and the small values
+whose answers are known by hand. All thirteen reduce to the exact expected
+literal, not merely to the right residue: **13 of 13 ok.** Here the harness's
+blindness to cost does not matter, because the question it is being asked is
+whether the answer is right.
 
 ## 3. What the kernel charges for
 
@@ -147,8 +156,9 @@ than the literal-to-constructor conversion it was meant to replace.
 ## 5. Verdict
 
 `CandidateRaw.lean` compiles in the real problem package, reports exactly
-`[propext, Classical.choice, Quot.sound]`, reduces every judged size, and is
-**2.0x the starter at the judged boundary, reproduced in three runs**. On the
+`[propext, Classical.choice, Quot.sound]`, reduces all thirteen cases to their
+exact expected literal, and is **2.0x the starter at the judged boundary,
+reproduced in four runs**. On the
 only available calibration — our own live 96,290,412 against the starter's
 measured kernel total — that is about 48M instructions.
 
