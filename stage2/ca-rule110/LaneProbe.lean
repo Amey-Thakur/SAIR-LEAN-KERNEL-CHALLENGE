@@ -343,4 +343,144 @@ theorem mixLane_eq {x : Nat} (hx : x < 2 ^ 48) : mixLane x = caMix32 x := by
       stageSpec, stageSpec, hlit,
       and_mask_eq_mod, and_mask_eq_mod, and_mask_eq_mod]
 
+/-! ## The ramp, and splitting a packing in two
+
+The 256 lane inputs are `seed + (i + 1) * 0x9e3779b9`. Built lane by lane
+that is 256 multiplications and 256 additions. Built as a packing it is two
+multiplications and one addition, against two constants that do not depend on
+the seed, because `pack_mul` and `pack_add` carry no side conditions.
+-/
+
+theorem pack_congr (w : Nat) {f g : Nat → Nat} :
+    ∀ n, (∀ k, k < n → f k = g k) → pack w f n = pack w g n := by
+  intro n
+  induction n with
+  | zero => intro _; rfl
+  | succ k ih =>
+    intro h
+    rw [pack, pack, ih (fun j hj => h j (by omega)), h k (by omega)]
+
+/-- The whole seeded ramp, from two seed-independent constants. -/
+theorem ramp_eq (w n seed c : Nat) :
+    pack w (fun _ => 1) n * seed + pack w (fun i => i + 1) n * c
+      = pack w (fun i => seed + (i + 1) * c) n := by
+  rw [pack_mul, pack_mul, pack_add]
+  exact pack_congr w n (fun k _ => by rw [Nat.one_mul])
+
+/-- A packing splits at any point, the upper part shifted by what the lower
+part occupies. The merge tree is this read backwards. -/
+theorem pack_split (w : Nat) (g : Nat → Nat) (a : Nat) :
+    ∀ b, pack w g (a + b)
+      = pack w g a + pack w (fun t => g (a + t)) b * 2 ^ (w * a) := by
+  intro b
+  induction b with
+  | zero => simp [pack]
+  | succ q ih =>
+    have he : (2 : Nat) ^ (w * (a + q)) = 2 ^ (w * q) * 2 ^ (w * a) := by
+      rw [Nat.mul_add, Nat.add_comm (w * a) (w * q), Nat.pow_add]
+    show pack w g (a + q) + g (a + q) * 2 ^ (w * (a + q))
+        = pack w g a
+          + (pack w (fun t => g (a + t)) q + g (a + q) * 2 ^ (w * q))
+            * 2 ^ (w * a)
+    rw [ih, Nat.add_mul, he, Nat.mul_assoc]
+    omega
+
+/-! ## One round of the gather
+
+A round reads a packing of `2 * m` lanes of width `W`, each holding `h` bits,
+and returns a packing of `m` lanes of width `2 * W`, each holding `2 * h`
+bits: the even lane in the low half, the odd lane above it. Eight rounds take
+256 lanes of one bit each down to a single lane holding all 256, and
+`pack W p 1 = p 0`, so that last lane *is* the answer.
+
+The even and the odd halves are each recovered by one mask, which is bit
+work and needs `eq_of_lanes`. Everything after that is free: `pack_mul`
+raises the odd half into place and `pack_add` joins the two, neither with a
+side condition, so no carry argument appears anywhere in the tree.
+-/
+
+/-- The even lanes, read at double width. -/
+theorem pack_even {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    pack W P (2 * m) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m
+      = pack (2 * W) (fun j => P (2 * j)) m := by
+  have hhW : (2 : Nat) ^ h ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) hh
+  have hPW : ∀ k, P k < 2 ^ W := fun k => Nat.lt_of_lt_of_le (hP k) hhW
+  have hP2 : ∀ k, P k < 2 ^ (2 * W) :=
+    fun k => Nat.lt_of_lt_of_le (hPW k)
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ h - 1 < 2 ^ (2 * W) := by
+    intro _
+    have h1 := Nat.two_pow_pos h
+    have h2 : (2 : Nat) ^ h ≤ 2 ^ (2 * W) :=
+      Nat.pow_le_pow_right (by omega) (by omega)
+    omega
+  have hwm : W * (2 * m) = 2 * W * m := by
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_comm W 2]
+  refine eq_of_lanes (by omega)
+    (Nat.lt_of_le_of_lt Nat.and_le_left
+      (by rw [← hwm]; exact pack_lt W P hPW (2 * m)))
+    (pack_lt (2 * W) _ (fun j => hP2 (2 * j)) m) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack (2 * W) _ hmask m i b hbw hin,
+      testBit_pack (2 * W) _ (fun j => hP2 (2 * j)) m i b hbw hin,
+      Nat.testBit_two_pow_sub_one]
+  by_cases hbh : b < h
+  · have hidx : 2 * W * i + b = W * (2 * i) + b := by
+      rw [Nat.mul_comm 2 W, Nat.mul_assoc]
+    rw [hidx, testBit_pack W P hPW (2 * m) (2 * i) b (by omega) (by omega)]
+    simp [hbh]
+  · rw [testBit_eq_false_of_lt_pow (hP (2 * i)) (by omega)]
+    simp [hbh]
+
+/-- The odd lanes, brought down by one lane width and read at double width. -/
+theorem pack_odd {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    (pack W P (2 * m) >>> W) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m
+      = pack (2 * W) (fun j => P (2 * j + 1)) m := by
+  have hhW : (2 : Nat) ^ h ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) hh
+  have hPW : ∀ k, P k < 2 ^ W := fun k => Nat.lt_of_lt_of_le (hP k) hhW
+  have hP2 : ∀ k, P k < 2 ^ (2 * W) :=
+    fun k => Nat.lt_of_lt_of_le (hPW k)
+      (Nat.pow_le_pow_right (by omega) (by omega))
+  have hmask : ∀ _ : Nat, (2 : Nat) ^ h - 1 < 2 ^ (2 * W) := by
+    intro _
+    have h1 := Nat.two_pow_pos h
+    have h2 : (2 : Nat) ^ h ≤ 2 ^ (2 * W) :=
+      Nat.pow_le_pow_right (by omega) (by omega)
+    omega
+  have hwm : W * (2 * m) = 2 * W * m := by
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_comm W 2]
+  refine eq_of_lanes (by omega)
+    (Nat.lt_of_le_of_lt Nat.and_le_left
+      (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ W)
+        (by rw [← hwm]; exact pack_lt W P hPW (2 * m))))
+    (pack_lt (2 * W) _ (fun j => hP2 (2 * j + 1)) m) ?_
+  intro i b hin hbw
+  rw [Nat.testBit_and,
+      testBit_pack (2 * W) _ hmask m i b hbw hin,
+      testBit_pack (2 * W) _ (fun j => hP2 (2 * j + 1)) m i b hbw hin,
+      Nat.testBit_two_pow_sub_one, Nat.testBit_shiftRight]
+  by_cases hbh : b < h
+  · have hidx : W + (2 * W * i + b) = W * (2 * i + 1) + b := by
+      rw [Nat.mul_add, Nat.mul_one, Nat.mul_comm 2 W, Nat.mul_assoc]
+      omega
+    rw [hidx,
+        testBit_pack W P hPW (2 * m) (2 * i + 1) b (by omega) (by omega)]
+    simp [hbh]
+  · rw [testBit_eq_false_of_lt_pow (hP (2 * i + 1)) (by omega)]
+    simp [hbh]
+
+/-- One round of the gather. The two masks are the only bit work; the shift
+into place and the join are `pack_mul` and `pack_add`, which is why no carry
+argument is needed. -/
+theorem merge_round {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
+    (hP : ∀ k, P k < 2 ^ h) :
+    (pack W P (2 * m) &&& pack (2 * W) (fun _ => 2 ^ h - 1) m)
+      + ((pack W P (2 * m) >>> W)
+          &&& pack (2 * W) (fun _ => 2 ^ h - 1) m) * 2 ^ h
+      = pack (2 * W) (fun j => P (2 * j) + P (2 * j + 1) * 2 ^ h) m := by
+  rw [pack_even P hW hh hP, pack_odd P hW hh hP, pack_mul, pack_add]
+
 end Lane
