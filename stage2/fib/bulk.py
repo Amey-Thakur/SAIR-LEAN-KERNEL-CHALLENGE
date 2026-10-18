@@ -250,6 +250,44 @@ def calib_theorem(name: str, n: int, raw: bool) -> str:
             f"theorem {name} : {lhs} = {total % MOD} := by rfl")
 
 
+def emit_floortiny() -> list[str]:
+    """The floor again, with a statement small enough not to be the cost.
+
+    `calibsweep` writes its operands as literals, so a statement carries up to
+    157 KB of hex and the kernel type checks the statement before it reduces
+    anything. Its figure may therefore be the cost of reading its own type
+    rather than of the multiplications in it, which would make it useless as a
+    floor -- the same trap as timing a 31,348-digit expected answer.
+
+    Here each operand is `2 ^ w - 1` for the width `w` the real operand has,
+    written as `Nat.sub (Nat.shiftLeft 1 w) 1`: thirty characters of source
+    for an operand of any width, and all bits set, so GMP does the same work
+    it would do on the real value. Same product count, same widths, 1.5 KB of
+    statement instead of 157 KB.
+
+    If these figures are far below `calibsweepraw`'s, the arithmetic is nearly
+    free and what remains in a candidate is the recursion around it.
+    """
+    lines = list(HEADER) + PROF + ["namespace FibTiny"]
+    for n in (1_000, 5_000, 20_000, 80_000, 150_000):
+        prod, _ = products(n)
+        terms, total = [], 0
+        for p, q in prod:
+            wp, wq = p.bit_length(), q.bit_length()
+            terms.append(f"Nat.mul (Nat.sub (Nat.shiftLeft 1 {wp}) 1) "
+                         f"(Nat.sub (Nat.shiftLeft 1 {wq}) 1)")
+            total += (2 ** wp - 1) * (2 ** wq - 1)
+        body = terms[0]
+        for t in terms[1:]:
+            body = f"Nat.add ({body}) ({t})"
+        lines.append(f"-- n = {n}: {len(prod)} products, widest "
+                     f"{max(max(p, q).bit_length() for p, q in prod)} bits")
+        lines.append(f"theorem t{n} : Nat.mod ({body}) 0x{MOD:X} = "
+                     f"{total % MOD} := by rfl")
+    lines.append("end FibTiny")
+    return lines
+
+
 def emit_calibsweep(raw: bool) -> list[str]:
     """The floor at five sizes in one process.
 
@@ -310,7 +348,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit", required=True,
                     choices=["bulk", "decomp", "prof", "fuel", "calib",
-                             "calibsweep", "calibsweepraw"])
+                             "calibsweep", "calibsweepraw",
+                             "floortiny"])
     ap.add_argument("--count", type=int, default=16)
     ap.add_argument("--groups", default="f1,f2,f3")
     ap.add_argument("--group", default="f3")
@@ -337,6 +376,8 @@ def main() -> int:
         lines = emit_calibsweep(raw=False)
     elif args.emit == "calibsweepraw":
         lines = emit_calibsweep(raw=True)
+    elif args.emit == "floortiny":
+        lines = emit_floortiny()
     else:
         if args.group not in GROUPS:
             raise SystemExit(f"unknown group {args.group}")

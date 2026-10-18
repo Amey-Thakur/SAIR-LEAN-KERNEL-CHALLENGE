@@ -123,6 +123,7 @@ emit --emit prof  --group f3 --count "$COUNT" > Proff3.lean
 emit --emit calib --n 150000                  > Calib.lean
 emit --emit calibsweep                        > Floor.lean
 emit --emit calibsweepraw                     > Floorraw.lean
+emit --emit floortiny                         > Floortiny.lean
 emit --emit fuel  --fuelmode small --count 4  > Fuelsmall.lean
 emit --emit fuel  --fuelmode big   --count 4  > Fuelbig.lean
 # The old method, kept so that the two can be compared in one place.
@@ -136,7 +137,7 @@ printf 'import Submission\n#print Submission.impl\n#print Submission.fibAux\n' \
   > Shape.lean
 
 # --------------------------------------------------------------- the designs
-for design in starter Candidate CandidateRaw; do
+for design in starter Candidate CandidateRaw CandidateExtraMul; do
   if [ "$design" != "starter" ] && [ ! -f "$ROOT/stage2/fib/$design.lean" ]; then
     echo "=== $design: no such file, skipped ==="
     continue
@@ -153,7 +154,8 @@ for design in starter Candidate CandidateRaw; do
     # enough, and the starter is the build that is certain to exist.
     run calib    Calib.lean    2 49
     run floor    Floor.lean    2 0
-    run floorraw Floorraw.lean 2 0
+    run floorraw  Floorraw.lean  2 0
+    run floortiny Floortiny.lean 2 0
     run T0 T0.lean 2 0
     run T1 T1.lean 2 0
     run T3 T3.lean 2 0
@@ -162,6 +164,8 @@ for design in starter Candidate CandidateRaw; do
     grep -E "type checking took" "$LOGS/$DESIGN-floor-1.log" || true
     echo "  ---"
     grep -E "type checking took" "$LOGS/$DESIGN-floorraw-1.log" || true
+    echo "  --- the floor with a small statement, per declaration ---"
+    grep -E "type checking took" "$LOGS/$DESIGN-floortiny-1.log" || true
   else
     run fuel-small Fuelsmall.lean 2 4
     run fuel-big   Fuelbig.lean   2 4
