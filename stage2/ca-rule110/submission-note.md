@@ -3,25 +3,25 @@
 Paste the block below into the **Submission note** field.
 
 ```
-Approach: the whole row in one natural number.
+Approach: the initial row computed on all 256 cells at once, in one natural number.
 
-The specification holds the row as a List Bool of length 256 and reads each neighbour with getD, which walks the list. Three reads per cell across 256 cells make one step quadratic, and the judge asks for up to eight steps: roughly 786,000 list traversal steps for a row that is 256 bits of information.
+The previous entry packed the row into a Nat and stepped it eight operations at a time, and its note said the initial row was not worth optimising: "a few hundred kernel steps against the hundreds of thousands the stepping costs". That was wrong, and measuring it is what this entry is built on. The judged cases ask for at most 13 steps, so the stepping is at most 117 operations, while the initial row evaluates a 32-bit mixing hash once per cell, 256 times, for 5,348. The row is 5,348 of 5,465 operations. The stepping was never where the work was.
 
-This submission keeps the specification's automaton exactly and changes only where the row lives. Cell i becomes bit i of a single Nat, and the entire row steps at once:
+So this entry changes only the row. Every cell gets a 64-bit lane inside one natural number and the whole hash runs on all 256 cells at once: 64 wide operations in place of 5,348 narrow ones. The packed step, the rotations and their correspondence proof are carried over unchanged.
 
-  new = (c ||| r) &&& ~~~(l &&& c &&& r)
+Lanes are a sum, not a bitwise or, and that is the one decision the rest follows from. The or version of the central lemma is shorter, because a bit of a disjunction is a disjunction of bits and no carry reasoning is needed at all. It is still the wrong choice: the hash multiplies, multiplication distributes over a sum and not over a disjunction, and core Lean has no lemma to convert between them. Paying the no-carry argument once, in Lane.testBit_pack, where the lane bound does the work, buys two lemmas that carry no side conditions whatever: Lane.pack_mul, a scalar multiplies every lane, and Lane.pack_add, two packings add lane by lane. Those two are what make the design cheap. The seeded ramp seed + (i+1)*0x9e3779b9 across 256 lanes becomes two multiplications and one addition against seed-independent constants instead of 256 of each. And in the gather, the even and odd halves of every round are joined by pack_add and raised into place by pack_mul, so no carry argument appears anywhere in the eight-round tree.
 
-where l is the row rotated one place up and r one place down, both cyclically inside a 256-bit mask. That expression is the specification's own three-case rule110 table; rule110_eq proves the two agree on all eight patterns rather than assuming it. Eight Nat operations per step, so 64 for the judged maximum, against roughly 786,000 list steps.
+Masking before the multiply, not after. The specification masks to 32 bits after each multiply. A packed lane cannot: shifting the packed number right drags the low bits of lane i+1 into the top of lane i, and the multiply would then carry them across the boundary. So this masks before the multiply as well. The two agree because (a % 2^m * c) % 2^m = (a * c) % 2^m, proved as Lane.mul_mod_pow, and the extra mask after the shift is a no-op on a lane narrow enough, proved as Lane.shiftRight_mod_eq. Masking first also caps the widest intermediate at 32 + 31 = 63 bits rather than 41 + 32 = 73, which is why a lane here is 64 bits and not the 128 the specification's own order of operations would force. That halves every operand in the hot path.
 
-Correctness. The proof rests on one theorem, pStep_encodeRow: a packed step and a list step are the same row seen two ways. It is proved bit by bit through Nat.eq_of_testBit_eq, splitting at the row width. Below the width, testBit_rotL and testBit_rotR show that bit i of each rotation is the cyclic neighbour the specification reads, each proved against the hypothesis that the row has no bits at or above 256, which is what makes a rotation wrap rather than leak. At or above the width both sides are absent: the packed side because every rotation is masked, the list side because a row says nothing past its length. pIter_encodeRow then lifts this to any number of steps by induction, carrying the width invariant through length_stepRow.
+The gather. Reading bit 31 out of each of 256 lanes leaves the bits 64 places apart, and no single shift can close that up, because cell i has to travel 63i places. Merging in pairs can: after r rounds the cells sit in groups of 2^r packed at the bottom of a field of 64*2^r bits, and merging two neighbouring groups moves the upper one down by an amount that does not depend on which pair it is. So every round is one mask, one shift, one mask, one multiply and one addition, and eight rounds bring all 256 cells together. The payload at round r is itself a width-one packing, which is what makes the tree an induction over one lemma rather than eight separate bit arguments, and a packing of a single lane is that lane, so the eighth round is the answer rather than a step towards it.
 
-Nothing else is optimised, deliberately. The initial row is still built by the specification's own initRowFor and encoded once by its own encodeRow. That costs a few hundred kernel steps against the hundreds of thousands the stepping costs, and it means this file needs no lemma about how the row is created. The remaining gain there is small and the proof obligation is not.
+Correctness. Lane.testBit_pack is the lemma everything rests on: a bit inside lane i of the packed number is that bit of lane i's value. Lane.eq_of_lanes turns a value built by shifting and masking back into a packing, so that pack_mul can apply to it. Lane.mixLane_eq proves the lane-local hash equals the specification's caMix32 for every input below 2^48, which covers all 256 lanes since a lane holds seed + (i+1)*0x9e3779b9 with seed below 2^32, hence below 2^41. Lane.encodeRow_map_range identifies the specification's own encodeRow of a row built by List.range and map as a width-one packing, which is the same object the gather produces, so the two meet inside the lane algebra rather than by reasoning about lists. Row.packedRow_eq assembles these into the statement that the packed row is encodeRow (initRowFor seed) for every seed below 2^32, and caSeed_lt supplies that bound from the specification's own masking of the input.
 
-impl_correct is proved for every n, including step counts far outside the judged range and the zero-step case. The file is self-contained and uses core Lean only, with no Mathlib dependency, so every lemma is about the exact function the kernel reduces. #print axioms Submission.impl_correct reports propext, Classical.choice and Quot.sound, all permitted.
+impl_correct is proved for every n, including the zero-step case and step counts far outside the judged range. The file is self-contained and uses core Lean only, with no Mathlib dependency, so every lemma is about the exact function the kernel reduces. #print axioms Submission.impl_correct reports propext, Classical.choice and Quot.sound, all permitted.
 
-No precomputed answers. There is no lookup table, no hardcoded value and no input-dependent branch carrying an answer; every cell is computed from the specification's own rule at evaluation time. The design was checked against the specification in a separate reference implementation before any Lean was written, including both wrap-around edge cases and step counts beyond the judged maximum, and the kernel was then checked to reduce impl to the specification's own values on 24 cases.
+No precomputed answers. There is no table of rows, no hardcoded answer and no input-dependent branch carrying one. The wide constants are the all-ones lane pattern, the lane-index ramp, the 32-bit field mask and the eight gather masks; none depends on the seed or the step count, each is related to its packed form by rfl, and every cell of every row is computed at reduction time from the specification's own seed.
 
-Acknowledgements and references. No Contributor Network item and no external source was used. Carrying several cells in the bits of one word so that a neighbourhood becomes a shift and a mask is a known idiom in bit-parallel cellular automaton simulation and is not claimed as new; what is specific to this entry is the correspondence proof against this locked list-based specification, and the observation that arbitrary-precision Nat removes the usual word-size ceiling so the bound needed is on the row width rather than on the machine.
+Acknowledgements and references. No Contributor Network item and no external source was used. Carrying several values in the fields of one wide word so that an operation applies to all of them at once is a known idiom, usually called SIMD within a register, and is not claimed as new; neither is the pairwise merge used to gather scattered bits. What is specific to this entry is the choice of an additive packing so that the hash's multiplications and the gather's joins need no carry reasoning, the observation that masking before the multiply rather than after both preserves the specification's answer and halves the lane width, and the correspondence proof against this locked specification.
 ```
 
 ## The other fields
@@ -33,64 +33,78 @@ Acknowledgements and references. No Contributor Network item and no external sou
 | File | `stage2/ca-rule110/Submission.lean` |
 | Reference | leave empty; nothing from the Contributor Network was used |
 
-## Verified before submitting
+## Measured before submitting
 
-Run `36280925440` of `.github/workflows/ca.yml`, on the challenge pinned at
-`940f0a2ead23ef70ab1387edabb347e629111edd`:
+`.github/workflows/ca.yml`, challenge pinned at
+`940f0a2ead23ef70ab1387edabb347e629111edd`. The previous entry and this one
+are built and timed on the same runner, back to back, on all 24 judged cases
+in a single process so that Lean start-up is paid once rather than 24 times.
 
-- `lake build` inside the real problem package: **0 errors**.
-- `#print axioms Submission.impl_correct`:
-  `[propext, Classical.choice, Quot.sound]`, all three permitted.
-- The kernel reduces `impl n` to the specification's own value on **24 cases**,
-  covering 0, 1, 2, 4, 8 and 13 steps across four seeds.
-- `model.py` re-checks the design against the specification on every run, so a
-  build cannot pass with an algorithm that has drifted from the spec.
+| | previous entry | this entry |
+| :--- | ---: | ---: |
+| 24 judged cases, one process | 2.50 s | **0.28 s** |
+| cases reduced to the specification's value | 24 of 24 | **24 of 24** |
+| axioms | permitted | **permitted** |
 
----
+Lean start-up is about 0.24 s of each figure, measured directly by a file that
+imports `Spec` and asserts nothing. Subtracting it leaves 2.26 s against
+0.04 s. The lower figure is close enough to the floor that the ratio is better
+read as a lower bound: what the measurement establishes is that the previous
+entry's judged work has essentially gone, not its exact multiple.
 
-## Correction, 16 October 2026: the cost estimate above is wrong
+The initial row alone, eight seeds, timed the same way:
 
-The paragraph that declines to optimise the initial row says it "costs a few
-hundred kernel steps against the hundreds of thousands the stepping costs".
-That is backwards, and it was asserted rather than counted.
+| | start-up only | specification route | packed |
+| :--- | ---: | ---: | ---: |
+| eight seeds, one process | 0.24 s | 0.90 s | **0.16 s** |
 
-The judged cases ask for **0, 1, 2, 4, 8 and 13 steps**. `pStep` is eight `Nat`
-operations and `pIter` adds one unfolding, so the stepping is at most 117
-operations in the worst judged case. The initial row is 5,348: the
-specification evaluates a 32-bit mixing hash once per cell, 256 times, then
-builds a 256-element list and walks it again to pack. **The row is 98% of the
-work and the stepping is 2%.** `stepmodel.py` counts both.
+## What the measurement corrected, twice
 
-This explains the standing. The entry is 686x its leader while doing the
-stepping about as well as it can be done, because the stepping was never where
-the cost was.
+**The previous entry's own note had the cost backwards.** It declined to touch
+the initial row on the grounds that the stepping dominated. `stepmodel.py`
+counts it the other way round: at most 13 steps is at most 117 operations, and
+the row is 5,348. A claim about where the work goes is worth measuring even
+when it is your own.
 
-`lanes.py` settles the replacement and checks it: give every cell a 128-bit
-lane inside one `Nat`, and the whole hash runs on all 256 cells at once,
-because a right shift shifts every lane and a multiply by a 32-bit constant
-multiplies every lane without carrying between them. The lane has to be 128
-bits wide and not 64 because the specification hashes `seed + (i+1)*PHI`
-**unmasked**, which reaches 41 bits, and its first round forms
-`(x ^ (x >>> 16)) * A1` before any masking, so the widest intermediate is 73
-bits.
+**The operation count then overstated the gain.** 5,348 narrow operations
+against 64 wide ones is a factor of 84, and the row-only measurement is 5.6.
+The operands are the reason: a packed value is 16,384 bits where the
+specification's are 32 to 64, and the kernel is not indifferent to width. The
+row-only figure is also floor-limited, which the full-case measurement shows:
+there the packed side falls to within 0.04 s of bare start-up.
 
-Gathering one bit per lane back into one bit per position cannot be done with a
-single shift, since cell `i` must travel `127i` places. Merging in pairs can:
-after `k` rounds the cells sit in groups of `2^k` at the bottom of a
-`128*2^k`-bit field, and merging two neighbouring groups leaves the lower one
-in place and moves the upper one down by `128*2^k - 2^k`, which is the same for
-every pair. Eight rounds, one shift and two masks each.
+## Checked before any Lean was written
 
-| | operations to build the row |
-| :--- | ---: |
-| the entry as submitted | 5,348 |
-| lane-packed | **99** |
-| | **54x** |
+`lanes.py` settles the algorithm against the specification at lane width 128,
+and `gentime.py --check` re-checks it at width 64, which is the width the
+mask-before-multiply order permits: **2,008 seeds, no mismatches**, including
+the four judged seeds and every edge case the two fixed cells create.
 
-Checked against the specification on 2,014 seeds, including all four judged
-seeds, and every one of the 24 published cases reproduced end to end.
+`LaneProbe.lean` carries the whole lane development and compiles on its own in
+CI, so a wrong lemma name is reported by itself and the live entry is never at
+risk while the proof is being built. It keeps a `#check` for every core name
+the proof was unsure of; one CI round then prints the real statement, which is
+much cheaper than guessing. It also checks, by `rfl`, that the kernel can
+verify a mask literal against its packed form at both sizes the design needs,
+which is what licenses writing the masks as literals rather than building them
+at reduction time.
 
-**This is not submitted.** The algorithm is settled and the measurement is
-taken; the Lean proof that the lane arithmetic is what the specification says
-is the remaining work, and the competition evaluates the latest entry rather
-than the best, so nothing goes up until that proof closes.
+## What this does not do
+
+It does not approach a podium. Rank 3 on this problem is about 3.3 million
+against the previous entry's 2,155,396,166, a factor of 652, and removing
+essentially all of the judged work is still short of that by one to two orders
+of magnitude. The remaining distance is not in the row and not in the
+stepping; it is in the step count, which this entry iterates one row at a time
+exactly as the specification does.
+
+Three cheap improvements were identified and deliberately left out, because
+each is worth a few operations out of 64 and the measurement no longer
+resolves them:
+
+* the final exclusive or of the hash cannot change bit 31, since it xors in
+  bit 47 of a value below `2 ^ 32`, so the whole third stage could go;
+* the mask between the shift and the exclusive or is redundant, because the
+  mask after the exclusive or already discards the neighbour's bits;
+* each gather round could use a disjunction and a pre-shifted mask instead of
+  a multiply and an addition, which is four operations a round instead of five.
