@@ -178,5 +178,6 @@ jobs:
             probe.log
             fib-measure.tsv
             fib-kernel.tsv
+            fib-cases-CandidateRaw.json
             fib-logs/
           if-no-files-found: warn

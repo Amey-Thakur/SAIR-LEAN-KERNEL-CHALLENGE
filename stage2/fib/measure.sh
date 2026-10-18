@@ -137,7 +137,7 @@ printf 'import Submission\n#print Submission.impl\n#print Submission.fibAux\n' \
   > Shape.lean
 
 # --------------------------------------------------------------- the designs
-for design in starter Candidate CandidateRaw CandidateLean; do
+for design in starter CandidateRaw; do
   if [ "$design" != "starter" ] && [ ! -f "$ROOT/stage2/fib/$design.lean" ]; then
     echo "=== $design: no such file, skipped ==="
     continue
@@ -172,6 +172,15 @@ for design in starter Candidate CandidateRaw CandidateLean; do
     echo "  --- what Lean compiled ---"
     lake env lean Shape.lean > "$LOGS/shape-$DESIGN.log" 2>&1
     head -40 "$LOGS/shape-$DESIGN.log"
+    # The cheap right-hand side forces the whole reduction but only checks the
+    # answer modulo 2^64 - 59. Once per design, check the real literal at every
+    # judged size and at the small values whose answers are known by hand. This
+    # is the slow harness, and here that does not matter: the question is
+    # whether every case reduces to exactly the right number, not what it costs.
+    echo "  --- full-literal check, all 13 cases ---"
+    "$PY" "$ROOT/stage2/timecases.py" \
+      --cases "$ROOT/stage2/fib/cases.json" \
+      --label "$DESIGN" --out "$ROOT/fib-cases-$DESIGN.json" --timeout 300
   fi
   echo "  --- per declaration at the hardest group ---"
   grep -E "type checking took" "$LOGS/$DESIGN-prof-f3-1.log" || true
