@@ -27,6 +27,9 @@ is never at risk while this is being built.
 #check @Nat.pow_add
 #check @Nat.succ_mul
 #check @Nat.mul_le_mul_right
+#check @Nat.add_mul_mod_self_right
+#check @Nat.add_mul_div_right
+#check @Nat.mod_eq_of_lt
 
 namespace Lane
 
@@ -81,7 +84,7 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
       -- `testBit_mod_two_pow` states the masked read, so the new lane is
       -- removed by taking the sum modulo the top of the earlier lanes
       have hmod : (pack w f k + f k * 2 ^ (w * k)) % 2 ^ (w * k) = pack w f k := by
-        rw [Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt (pack_lt w f hf k)]
+        rw [Nat.add_mul_mod_self_right, Nat.mod_eq_of_lt (pack_lt w f hf k)]
       have hbit := Nat.testBit_mod_two_pow
         (pack w f k + f k * 2 ^ (w * k)) (w * k) (w * i + b)
       have hdec : decide (w * i + b < w * k) = true := by simp [hlow]
@@ -92,7 +95,7 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
       have hik : i = k := by omega
       subst hik
       have hdiv : (pack w f i + f i * 2 ^ (w * i)) / 2 ^ (w * i) = f i := by
-        rw [Nat.add_mul_div_left _ _ (Nat.two_pow_pos (w * i)),
+        rw [Nat.add_mul_div_right _ _ (Nat.two_pow_pos (w * i)),
             Nat.div_eq_of_lt (pack_lt w f hf i), Nat.zero_add]
       have hshift := Nat.testBit_shiftRight (i := w * i) (j := b)
         (pack w f i + f i * 2 ^ (w * i))
