@@ -27,8 +27,15 @@ does. **Checked before it was trusted:**
 | leaderboard, submission 692, the same file | **10,322,617,420** |
 | ratio | **1.038** |
 
-Within 4%, and the residual is explained: the counter also sees the kernel
-checking the few declarations the benchmark file itself adds.
+Within 4%. The residual is **not** the choice of representative inputs: two
+inputs in the same band differ by 0.1% to 0.3% here, because the operation
+count depends on the band and the degree and not on the particular stream. The
+likely source is the measurement boundary and the processor — callgrind's
+synthetic CPU selects different GMP code paths from a PMU host, and the judge
+arms its counter around a replay of a binary export rather than around a
+freshly elaborated declaration. For ranking two designs against each other,
+which is all this is used for, a fixed 4% offset does not matter; both sides
+carry it.
 
 Two further checks that the instrument is sound:
 
@@ -145,14 +152,27 @@ one operation: `Nat.shiftLeft` by 83,616 (507,664), `Nat.shiftRight` of an
 80,000-bit number (611,539), `Nat.land` against a lane mask (529,290),
 `Nat.lor` (535,380), `Nat.gcd` of two 80,000-bit numbers (439,099).
 
-**A bit-length proxy is not just inaccurate here, it is inverted.** Scoring a
-division at `a_bits + b_bits` put the removed exactness test at a fifth of the
-cost. Priced by operation count it is 253 operations of about 4,700 in the
-loop, and the measurement agrees: the entry that removed it (submission 1610)
-measures 1,499,390,542 against the starter's 1,483,351,202 at the easy sizes
-and 2,299,773,925 against 2,375,274,780 at the hardest — about 3% at the
-hardest size and nothing at the easy sizes, where the division it replaced was
-narrow. Do not score anything by bit length.
+**The live entry is worth 0.79%, not 3%.** Submission 1610, which replaced the
+exactness test with a multiplication back, measured against the starter on the
+same runner in the same job:
+
+| case | starter | submission 1610 | |
+| :--- | ---: | ---: | ---: |
+| 2^18, k=15 | 1,483,351,202 | 1,499,390,542 | +1.08% |
+| 2^25, k=15 | 1,485,120,760 | 1,500,772,184 | +1.05% |
+| 2^37, k=205 | 1,502,591,447 | 1,516,542,249 | +0.93% |
+| 2^45, k=205 | 1,502,797,221 | 1,518,683,295 | +1.06% |
+| 2^57, k=3484 | 2,375,274,780 | 2,299,773,925 | **−3.18%** |
+| 2^62, k=3484 | 2,367,116,536 | 2,296,122,830 | **−3.00%** |
+| total | 10,716,251,946 | 10,631,285,025 | **−0.79%** |
+
+It wins 3% where the operands are wide and **loses 1% on the four cases where
+they are not**, because it trades a remainder for a multiplication and at
+narrow widths the multiplication is the dearer of the two. Net 0.79%. The "3%"
+recorded here before was a wall-clock figure from the hardest difficulty only,
+and the bit-length model that predicted a fifth was wrong in the other
+direction. **Do not score anything by bit length, and do not quote a figure
+from one difficulty as the entry's improvement.**
 
 ## Packing: 16x on the arithmetic, and why it still does not reach the podium
 
