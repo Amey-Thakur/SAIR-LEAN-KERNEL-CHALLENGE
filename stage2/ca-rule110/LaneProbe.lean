@@ -30,6 +30,11 @@ is never at risk while this is being built.
 #check @Nat.add_mul_mod_self_right
 #check @Nat.add_mul_div_right
 #check @Nat.mod_eq_of_lt
+#check @Nat.eq_of_testBit_eq
+#check @Nat.div_add_mod
+#check @Nat.div_lt_iff_lt_mul
+#check @Nat.mod_lt
+#check @Nat.mul_right_comm
 
 namespace Lane
 
@@ -102,5 +107,68 @@ theorem testBit_pack (w : Nat) (f : Nat → Nat) (hf : ∀ k, f k < 2 ^ w) :
       rw [Nat.shiftRight_eq_div_pow, hdiv] at hshift
       rw [pack]
       exact hshift.symm
+
+/-! ## The lane algebra
+
+Two shapes of lemma, and the split between them is the whole design.
+
+`*` and `+` mix bits between positions, so they are handled at the level of
+the packing itself, where distributivity does the work and no bound on the
+lanes is needed. `^^^`, `&&&` and `>>>` do not mix bits, so they are handled
+one bit at a time by the core `testBit` lemmas and need nothing new here.
+`testBit_pack` above is the hinge between the two views.
+-/
+
+/-- A scalar multiplies every lane, with no side condition whatever. The
+lanes are a sum precisely so that this is true: `*` distributes over `+`,
+and Core Lean has no lemma that would let it distribute over `|||`. -/
+theorem pack_mul (w : Nat) (f : Nat → Nat) (c : Nat) :
+    ∀ n, pack w f n * c = pack w (fun k => f k * c) n := by
+  intro n
+  induction n with
+  | zero => simp [pack]
+  | succ k ih =>
+    show (pack w f k + f k * 2 ^ (w * k)) * c
+        = pack w (fun j => f j * c) k + f k * c * 2 ^ (w * k)
+    rw [Nat.add_mul, ih, Nat.mul_right_comm]
+
+/-- Two packings add lane by lane, again with no side condition. The sum of
+two lanes may well overflow `2 ^ w`; this says only that the arithmetic is
+faithful, and a bound is reimposed where one is needed. -/
+theorem pack_add (w : Nat) (f g : Nat → Nat) :
+    ∀ n, pack w f n + pack w g n = pack w (fun k => f k + g k) n := by
+  intro n
+  induction n with
+  | zero => simp [pack]
+  | succ k ih =>
+    show pack w f k + f k * 2 ^ (w * k) + (pack w g k + g k * 2 ^ (w * k))
+        = pack w (fun j => f j + g j) k + (f k + g k) * 2 ^ (w * k)
+    rw [← ih, Nat.add_mul]
+    omega
+
+/-- Extensionality in the lane view: two numbers that fit in `n` lanes are
+equal as soon as their lanes agree. This is what turns a value built by
+shifting and masking back into a packing, which is the only way `pack_mul`
+can then be applied to it. -/
+theorem eq_of_lanes {w n x y : Nat} (hw : 0 < w)
+    (hx : x < 2 ^ (w * n)) (hy : y < 2 ^ (w * n))
+    (h : ∀ i b, i < n → b < w →
+      x.testBit (w * i + b) = y.testBit (w * i + b)) :
+    x = y := by
+  apply Nat.eq_of_testBit_eq
+  intro j
+  rcases Nat.lt_or_ge j (w * n) with hj | hj
+  · -- inside the lanes: name the lane and the offset by division
+    have hd : w * (j / w) + j % w = j := by
+      rw [Nat.mul_comm]
+      exact Nat.div_add_mod j w
+    have hb : j % w < w := Nat.mod_lt _ hw
+    have hi : j / w < n := by
+      rw [Nat.div_lt_iff_lt_mul hw, Nat.mul_comm]
+      exact hj
+    rw [← hd]
+    exact h _ _ hi hb
+  · -- above the lanes: both sides are zero, by the bound each one carries
+    rw [testBit_eq_false_of_lt_pow hx hj, testBit_eq_false_of_lt_pow hy hj]
 
 end Lane
