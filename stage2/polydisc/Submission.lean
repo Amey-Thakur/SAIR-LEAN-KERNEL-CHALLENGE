@@ -121,22 +121,40 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | succ n ih =>
     intro initial f g
     rw [resultantGo, normalResultantGo, exactDivide_eq_fun]
-    -- the bodies are now identical except for the recursive call. `split`
-    -- takes the matches and the conditionals apart in step on both sides,
-    -- which `simp only` will not do, and every leaf is then either literally
-    -- the same term or one application of the induction hypothesis.
-    --  takes the two sides apart independently, because each side's
-    -- matches compile to their own matcher, so some leaves carry two
-    -- contradictory equations for the same scrutinee. Those are discharged
-    -- by `simp_all`, but only with `done`: without it `simp_all` counts as
-    -- having succeeded the moment it simplifies anything, and `first` stops
-    -- at it with the goal still open.
-    repeat' split
-    all_goals first
-      | rfl
-      | exact ih _ _ _
-      | (simp_all; done)
-      | (simp [ih]; done)
+    -- Each side's matches compile to their own matcher, so `split` takes the
+    -- two apart independently and invents a separate variable for the same
+    -- scrutinee. Every shared scrutinee is therefore generalised by hand,
+    -- which rewrites both sides at once, and each leaf is then literally the
+    -- same term or one use of the induction hypothesis.
+    cases hpr : pseudoRemainder f g with
+    | none => rfl
+    | some raw =>
+      by_cases hi : initial = true
+      · rw [if_pos hi]
+        cases htr : trimLeading raw with
+        | nil => rfl
+        | cons a as =>
+          cases as with
+          | nil => split <;> rfl
+          | cons b bs =>
+            by_cases hl : (a :: b :: bs).length + 1 = g.length
+            · rw [if_pos hl, if_pos hl]
+              exact ih false g (a :: b :: bs)
+            · rw [if_neg hl, if_neg hl]
+      · rw [if_neg hi]
+        cases hed : exactDividePolynomial (f.headD 0 ^ 2) raw with
+        | none => rfl
+        | some coeffs =>
+          cases htr : trimLeading coeffs with
+          | nil => rfl
+          | cons a as =>
+            cases as with
+            | nil => split <;> rfl
+            | cons b bs =>
+              by_cases hl : (a :: b :: bs).length + 1 = g.length
+              · rw [if_pos hl, if_pos hl]
+                exact ih false g (a :: b :: bs)
+              · rw [if_neg hl, if_neg hl]
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
