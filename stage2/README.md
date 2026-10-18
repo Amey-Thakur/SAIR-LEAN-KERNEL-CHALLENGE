@@ -13,12 +13,12 @@ folder holds entries for the actual problems.
 
 ## What is live, on all eight problems
 
-Verified against the board published 17 October 2026. Every problem carries
+Verified against the board published 17 October 2026. The `polydisc` row carries submission 1610, sent that day; its score publishes at the next 08:00 UTC run. Every problem carries
 this repository's best entry; nothing prepared here is unsent.
 
 | Problem | Live entry | Submission | Rank | Instructions | x to rank 3 |
 |---|---|---:|---:|---:|---:|
-| `polydisc` | starter, unmodified | 692 | 33/33 | 10,321,620,511 | **9.2** |
+| `polydisc` | `polydisc/Submission.lean` | **1610** | 33/33 | 10,321,620,511 | **9.2** |
 | `fib` | starter, unmodified | 687 | 47/47 | 96,286,901 | **13.4** |
 | `sha256` | `sha256/Submission.lean` | 700 | 30/35 | 151,049,224,266 | **15.0** |
 | `partition` | `partition/SubmissionPacked.lean` | 1103 | 28/43 | 131,414,027 | 90.7 |
@@ -50,6 +50,7 @@ with a different note, and only `201` creates. `whatsliv.py` runs the check.
 |---|---|---|---|
 | `ca-rule110` | the stepping dominates, so the initial row is not worth optimising | judged cases ask at most 13 steps: the row is 5,348 of 5,465 operations | **false**, and it is the whole of the gap. `lanes.py` settles a 54x replacement |
 | `fib` | `p.2 ^ 2` goes through `Monoid.npow`, and `Nat.binaryRec` is costly | both designs reduce `n = 150000` in 0.34 s of work, within 2% | **false**; neither suspect is real |
+| `polydisc` | the exactness test is a fifth of the bit-work, so removing it is worth a fifth | removing it measures **3%** at the hardest difficulty | the saving is real but small: a bit-length proxy overstates a division by a nearly equal divisor |
 
 Negative results are kept rather than deleted. Each removes an explanation for
 a gap, which is the only thing that makes the next attempt cheaper.
