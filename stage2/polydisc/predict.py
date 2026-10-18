@@ -161,6 +161,85 @@ def disc(c: Cost, n: int) -> int:
     return prs(c, p, d)
 
 
+# --------------------------------------------- what a packed design costs ---
+# Measured inputs to this estimate, all from the instruction counter:
+#
+#   one kernel operation                       ~250,000 instructions
+#   the same arithmetic, 24 list coefficients  27,266,668
+#   the same arithmetic, one packed integer     1,680,894   (16.2x cheaper)
+#
+# and GMP's cost for an unbalanced product of N limbs by S limbs, which is
+# ceil(N/S) balanced Karatsuba products, so N * S^0.585.
+PER_OP = 250_000
+LIMB = 64
+
+
+def packed_estimate(n: int, slack: float,
+                    cheap_setup: bool = False) -> tuple[int, int, int]:
+    """Operations, GMP limb-work and a predicted score for one judged case
+    under a Kronecker-packed loop with a base fixed for the whole run.
+
+    `slack` is how much wider each slot must be than the true final
+    coefficient. A bound propagated from the data costs about six `Nat`
+    operations per step and accumulates roughly `k` bits of slack per step,
+    which over 23 steps is a factor of 2 on top of the 2x a balanced digit
+    already needs, so slack = 4. A bound tight to the true coefficient size,
+    which is what a Hadamard-style argument would give, is slack = 2.
+    """
+    k = kbits_of(n)
+    degree = 24
+    slot = int(slack * degree * k)              # bits per slot
+    ops = 0
+    work = 0
+    for i in range(1, degree):
+        slots = degree + 1 - i                  # the polynomial shrinks
+        wide = max(1, slots * slot // LIMB)     # limbs in the packed integer
+        scalar = max(1, 2 * i * k // LIMB)      # limbs in A, B, C and lc^2
+        # three products, two differences, one division, one exactness test,
+        # and four extractions of a leading or second coefficient
+        ops += 7 + 4
+        per = int(wide * (scalar ** 0.585))
+        work += 6 * per
+    # the coefficient setup is unchanged and is cheap Nat work
+    words = sum((coefficient_width(k, j) + 63) // 64 for j in range(1, 25))
+    if cheap_setup:
+        # the generator advanced by doubling jumps, all lanes at once: about
+        # ten doublings of eight operations each, plus the jump constants
+        ops += 150
+    else:
+        ops += 6 * words                        # the specification's own
+    return ops, work, ops * PER_OP + work
+
+
+def report_packed() -> None:
+    print()
+    print("  what a Kronecker-packed loop would cost, against the measured "
+          "starter")
+    measured = {2 ** 18: 1_483_351_202, 2 ** 25: 1_485_120_760,
+                2 ** 37: 1_502_591_447, 2 ** 45: 1_502_797_221,
+                2 ** 57: 2_375_274_780, 2 ** 63 - 1: 2_367_116_536}
+    for slack, cheap, label in (
+            (4.0, False, "loop packed, bound propagated from the data, "
+                         "setup unchanged"),
+            (2.0, False, "loop packed, bound tight to the coefficient size, "
+                         "setup unchanged"),
+            (4.0, True, "loop packed AND the generator advanced by doubling "
+                        "jumps")):
+        total = 0
+        print(f"      {label}:")
+        for n in JUDGED:
+            ops, work, score = packed_estimate(n, slack, cheap)
+            total += score
+            print(f"        2^{n.bit_length() - 1:<4} k={kbits_of(n):>4}  "
+                  f"{ops:>6,} operations  {work:>14,} limb-work  "
+                  f"predicted {score:>14,}  measured "
+                  f"{measured[n]:>14,}")
+        board = 10_322_617_420
+        print(f"        TOTAL predicted {total:>14,}   "
+              f"against the board's {board:,}, a factor of "
+              f"{board / total:.1f}")
+
+
 def main() -> int:
     from model import disc_spec
 
@@ -201,6 +280,8 @@ def main() -> int:
             share = hardest.table[m][where] / hardest.total(m) * 100
             line += f" {share:>11.1f}%"
         print(line)
+
+    report_packed()
     return 0
 
 
