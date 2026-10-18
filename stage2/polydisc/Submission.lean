@@ -140,7 +140,7 @@ theorem resultantGo_eq : ∀ fuel initial f g,
           cases as with
           | nil => split <;> rfl
           | cons b bs =>
-            by_cases hl : (a :: b :: bs).length + 1 = g.length
+            by_cases hl : ((a :: b :: bs).length + 1 == g.length) = true
             · simp only [if_pos hl]
               exact ih false g (a :: b :: bs)
             · simp only [if_neg hl]
@@ -157,7 +157,7 @@ theorem resultantGo_eq : ∀ fuel initial f g,
             cases as with
             | nil => split <;> rfl
             | cons b bs =>
-              by_cases hl : (a :: b :: bs).length + 1 = g.length
+              by_cases hl : ((a :: b :: bs).length + 1 == g.length) = true
               · simp only [if_pos hl]
                 exact ih false g (a :: b :: bs)
               · simp only [if_neg hl]
