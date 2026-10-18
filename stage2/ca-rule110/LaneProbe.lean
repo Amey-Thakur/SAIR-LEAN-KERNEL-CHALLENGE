@@ -416,7 +416,8 @@ theorem pack_even {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
       Nat.pow_le_pow_right (by omega) (by omega)
     omega
   have hwm : W * (2 * m) = 2 * W * m := by
-    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_comm W 2]
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_right_comm,
+        Nat.mul_comm W 2]
   refine eq_of_lanes (by omega)
     (Nat.lt_of_le_of_lt Nat.and_le_left
       (by rw [← hwm]; exact pack_lt W P hPW (2 * m)))
@@ -451,7 +452,8 @@ theorem pack_odd {W h m : Nat} (P : Nat → Nat) (hW : 0 < W) (hh : h ≤ W)
       Nat.pow_le_pow_right (by omega) (by omega)
     omega
   have hwm : W * (2 * m) = 2 * W * m := by
-    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_comm W 2]
+    rw [Nat.mul_comm 2 m, ← Nat.mul_assoc, Nat.mul_right_comm,
+        Nat.mul_comm W 2]
   refine eq_of_lanes (by omega)
     (Nat.lt_of_le_of_lt Nat.and_le_left
       (Nat.lt_of_le_of_lt (Nat.shiftRight_le _ W)
