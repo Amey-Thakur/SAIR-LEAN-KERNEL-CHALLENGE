@@ -43,6 +43,7 @@ is never at risk while this is being built.
 #check @List.length_range
 #check @Nat.testBit_zero
 #check @Nat.testBit_succ
+#check @Nat.mul_le_mul
 #check @Nat.pow_succ
 #check @Nat.testBit_and
 #check @Nat.testBit_xor
@@ -687,7 +688,8 @@ width-one packing and the hash never has to be corrected.
 -/
 
 theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
-    (hfg : ∀ t, f (2 + t) = g (2 + t)) (hg0 : g 0 = 1) (hg1 : g 1 = 0) :
+    (hfg : ∀ t, t < 254 → f (2 + t) = g (2 + t))
+    (hg0 : g 0 = 1) (hg1 : g 1 = 0) :
     (pack 1 f 256 >>> 2) * 4 + 1 = pack 1 g 256 := by
   have hpow : (2 : Nat) ^ (1 * 2) = 4 := by rfl
   have hlow : pack 1 f 2 < 4 := by
@@ -709,7 +711,7 @@ theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
     rw [hg0, hg1]
   have hup : pack 1 (fun t => f (2 + t)) 254
       = pack 1 (fun t => g (2 + t)) 254 :=
-    pack_congr 1 254 (fun t _ => hfg t)
+    pack_congr 1 254 (fun t ht => hfg t ht)
   -- the shift is exact, because the two lanes it drops are below 4
   have hdiv : pack 1 f 256 >>> 2 = pack 1 (fun t => f (2 + t)) 254 := by
     rw [Nat.shiftRight_eq_div_pow, hsf]
@@ -718,5 +720,51 @@ theorem fix_two {f g : Nat → Nat} (hf : ∀ k, f k < 2)
         Nat.zero_add]
   rw [hdiv, hsg, hg2, hup]
   omega
+
+/-! ## A whole mixer stage in one step
+
+Each of `caMix32`'s stages is a shift, a mask, an exclusive or, a mask, a
+multiply and a mask. Taken together they are one lane-wise application of
+`stage`, and bundling them here keeps the assembly below short enough to
+read. The width is 64 and the live field 32 bits, as the design fixes them:
+`32 + s ≤ 64` is what lets the mask discard the neighbour's bits, and
+`c < 2 ^ 32` is what keeps the product inside its own lane.
+-/
+
+theorem pack_xorshift {s n : Nat} (f : Nat → Nat) (hs : 32 + s ≤ 64)
+    (hf : ∀ k, f k < 2 ^ 64) :
+    (pack 64 f n ^^^ ((pack 64 f n >>> s) &&& pack 64 (fun _ => 2 ^ 32 - 1) n))
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n
+      = pack 64 (fun k => (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32) n := by
+  have h32 : (2 : Nat) ^ 32 ≤ 2 ^ 64 :=
+    Nat.pow_le_pow_right (by omega) (by omega)
+  have hsh : ∀ k, (f k >>> s) % 2 ^ 32 < 2 ^ 64 := fun k =>
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos 32)) h32
+  have hxo : ∀ k, (f k ^^^ ((f k >>> s) % 2 ^ 32)) < 2 ^ 64 := fun k =>
+    Nat.xor_lt_two_pow (hf k) (hsh k)
+  rw [pack_shiftRight_and_mask f (by omega) hs hf,
+      pack_xor f _ (by omega) hf hsh,
+      pack_and_mask _ (by omega) (by omega) hxo]
+
+theorem pack_stage {s c n : Nat} (f : Nat → Nat) (hs : 32 + s ≤ 64)
+    (hc : c < 2 ^ 32) (hf : ∀ k, f k < 2 ^ 64) :
+    (((pack 64 f n
+          ^^^ ((pack 64 f n >>> s) &&& pack 64 (fun _ => 2 ^ 32 - 1) n))
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n) * c)
+        &&& pack 64 (fun _ => 2 ^ 32 - 1) n
+      = pack 64 (fun k => stage s c (f k)) n := by
+  have hpr : ∀ k,
+      (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32 * c < 2 ^ 64 := by
+    intro k
+    have h1 : (f k ^^^ ((f k >>> s) % 2 ^ 32)) % 2 ^ 32 ≤ 2 ^ 32 - 1 := by
+      have := Nat.mod_lt (f k ^^^ ((f k >>> s) % 2 ^ 32)) (Nat.two_pow_pos 32)
+      omega
+    have h2 : c ≤ 2 ^ 32 - 1 := by omega
+    have h3 := Nat.mul_le_mul h1 h2
+    have h4 : (2 ^ 32 - 1) * (2 ^ 32 - 1) < 2 ^ 64 := by decide
+    omega
+  rw [pack_xorshift f hs hf, pack_mul,
+      pack_and_mask _ (by omega) (by omega) hpr]
+  exact pack_congr 64 n (fun k _ => rfl)
 
 end Lane
