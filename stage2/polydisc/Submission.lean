@@ -125,13 +125,18 @@ theorem resultantGo_eq : ∀ fuel initial f g,
     -- takes the matches and the conditionals apart in step on both sides,
     -- which `simp only` will not do, and every leaf is then either literally
     -- the same term or one application of the induction hypothesis.
+    --  takes the two sides apart independently, because each side's
+    -- matches compile to their own matcher, so some leaves carry two
+    -- contradictory equations for the same scrutinee. Those are discharged
+    -- by `simp_all`, but only with `done`: without it `simp_all` counts as
+    -- having succeeded the moment it simplifies anything, and `first` stops
+    -- at it with the goal still open.
     repeat' split
     all_goals first
       | rfl
       | exact ih _ _ _
-      | simp only [ih]
-      | simp_all
-      | simp [ih]
+      | (simp_all; done)
+      | (simp [ih]; done)
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
@@ -152,6 +157,7 @@ def resultantOf (p : List Int) : Int :=
 
 theorem resultantOf_eq (p : List Int) : resultantOf p = resultantFromPoly p := by
   rw [resultantOf, resultantFromPoly, resultant_eq]
+  all_goals rfl
 
 def impl (n : Nat) : Int :=
   let p := polyOf n
