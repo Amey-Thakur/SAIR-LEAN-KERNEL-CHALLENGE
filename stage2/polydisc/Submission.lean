@@ -12,22 +12,24 @@ pseudo-remainder by the square of the previous leading coefficient, and
 
 That is two full big-integer divisions of the same pair: one to decide
 whether the division is exact, and the same division again for the quotient.
-`%` on `Int` is not cheaper than `/`; it computes the quotient to find the
-remainder.
+`%` on `Int` is not cheaper than `/`; `Int.emod_def` says as much,
+`a % b = a - b * (a / b)`.
 
 At the largest judged size the coefficients reach about eighty thousand bits,
 and `costmodel.py` counts the divisibility test alone at a fifth of all the
 bit-length flowing through the multiplications and divisions of the whole
-computation. This file computes the quotient once and checks it by
+computation. This file computes the quotient once, binds it, and checks it by
 multiplying back: one division and one multiplication instead of two
-divisions. The guard is kept exactly, so a non-exact division still returns
-`none` and the Bareiss fallback is still selected on the same inputs.
+divisions. The binding is what makes that true rather than cosmetic, since
+the kernel shares a value it has already reduced.
 
-Nothing else changes. The polynomial, the derivative, the pseudo-remainder
-and the fallback are the specification's own, so the only obligation is that
-the new division agrees with the old one everywhere. That is proved from
-divisibility rather than from any property of the inputs, and it holds for a
-zero divisor too: there `c / 0 * 0 = 0`, and both sides say `c = 0`.
+The guard is kept exactly, so a non-exact division still returns `none` and
+the Bareiss fallback is still selected on the same inputs. Nothing else
+changes: the polynomial, the derivative, the pseudo-remainder and the
+fallback are the specification's own, so the only obligation is that the new
+division agrees with the old one everywhere. That is proved from
+divisibility, and it holds for a zero divisor too, where `c / 0 * 0 = 0` and
+both sides say `c = 0`.
 -/
 
 namespace Submission
@@ -50,9 +52,10 @@ def exactDivide (divisor : Int) : List Int → Option (List Int)
 theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
   constructor
   · intro h
-    exact Int.ediv_mul_cancel (Int.dvd_of_emod_eq_zero h)
+    exact Int.ediv_mul_cancel_of_emod_eq_zero h
   · intro h
-    exact Int.emod_eq_zero_of_dvd ⟨c / d, by rw [← h]; exact Int.mul_comm _ _⟩
+    rw [Int.emod_def, Int.mul_comm, h]
+    omega
 
 theorem exactDivide_eq (divisor : Int) :
     ∀ p, exactDivide divisor p = exactDividePolynomial divisor p := by
@@ -60,22 +63,16 @@ theorem exactDivide_eq (divisor : Int) :
   induction p with
   | nil => rfl
   | cons c cs ih =>
-    rw [exactDivide, exactDividePolynomial]
     by_cases hz : divisor = 0
-    · subst hz; simp
-    · have hb : (divisor == 0) = false := by simp [hz]
-      by_cases hdvd : c % divisor = 0
-      · have h1 : (c / divisor * divisor == c) = true := by
-          simp [(emod_zero_iff c divisor).mp hdvd]
-        have h2 : (c % divisor != 0) = false := by simp [hdvd]
-        simp only [hb, h1, h2, Bool.false_or, if_false, if_true]
-        rw [ih]
-      · have h1 : (c / divisor * divisor == c) = false := by
-          have hne : ¬ (c / divisor * divisor = c) := fun h =>
-            hdvd ((emod_zero_iff c divisor).mpr h)
-          simp [hne]
-        have h2 : (c % divisor != 0) = true := by simp [hdvd]
-        simp [hb, h1, h2]
+    · subst hz
+      simp [exactDivide, exactDividePolynomial]
+    · by_cases hdvd : c % divisor = 0
+      · have h1 : c / divisor * divisor = c :=
+          Int.ediv_mul_cancel_of_emod_eq_zero hdvd
+        simp [exactDivide, exactDividePolynomial, hz, hdvd, h1, ih]
+      · have h1 : ¬ (c / divisor * divisor = c) := fun h =>
+          hdvd ((emod_zero_iff c divisor).mpr h)
+        simp [exactDivide, exactDividePolynomial, hz, hdvd, h1]
 
 /-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
@@ -107,14 +104,14 @@ def resultantGo : Nat → Bool → List Int → List Int → Option Int
 
 /-- Both bodies are the same once the division is rewritten, so the induction
 closes by rewriting rather than by taking the matches apart. -/
-theorem resultantGo_eq : resultantGo = normalResultantGo := by
-  funext fuel
+theorem resultantGo_eq : ∀ fuel initial f g,
+    resultantGo fuel initial f g = normalResultantGo fuel initial f g := by
+  intro fuel
   induction fuel with
-  | zero => funext initial f g; rfl
+  | zero => intro _ _ _; rfl
   | succ n ih =>
-    funext initial f g
-    rw [resultantGo, normalResultantGo, exactDivide_eq_fun]
-    simp only [ih]
+    intro initial f g
+    simp only [resultantGo, normalResultantGo, exactDivide_eq_fun, ih]
 
 def resultant (f g : List Int) : Option Int :=
   let f := trimLeading f
@@ -124,9 +121,8 @@ def resultant (f g : List Int) : Option Int :=
   else
     none
 
-theorem resultant_eq : resultant = normalResultant := by
-  funext f g
-  rw [resultant, normalResultant, resultantGo_eq]
+theorem resultant_eq (f g : List Int) : resultant f g = normalResultant f g := by
+  simp only [resultant, normalResultant, resultantGo_eq]
 
 def resultantOf (p : List Int) : Int :=
   let derivative := derivHL p
@@ -134,9 +130,8 @@ def resultantOf (p : List Int) : Int :=
   | some r => r
   | none => bareissDet (monicReducedSylvester p derivative)
 
-theorem resultantOf_eq : resultantOf = resultantFromPoly := by
-  funext p
-  rw [resultantOf, resultantFromPoly, resultant_eq]
+theorem resultantOf_eq (p : List Int) : resultantOf p = resultantFromPoly p := by
+  simp only [resultantOf, resultantFromPoly, resultant_eq]
 
 def impl (n : Nat) : Int :=
   let p := polyOf n
@@ -146,6 +141,6 @@ def impl (n : Nat) : Int :=
 
 theorem impl_correct : ∀ n, impl n = discSpec n := by
   intro n
-  rw [impl, discSpec, discriminantFromPoly, resultantOf_eq]
+  simp only [impl, discSpec, discriminantFromPoly, resultantOf_eq]
 
 end Submission
