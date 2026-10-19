@@ -194,6 +194,44 @@ A list recursion is flat in the list's length: 2,304 elements cost the same
 whether the list is 24, 48 or 96 long, so the kernel's structural recursion is
 not quadratic here.
 
+### What the notation costs, and why it pays on `Nat` and not on `Int`
+
+`a * b` is `@HMul.hMul Int Int Int instHMul a b`, and before the kernel reaches
+an operation it can compute it unfolds the `HMul.hMul` projection, `instHMul`,
+the `Mul.mul` projection and `Int.instMul`. The arguments differ at every use,
+so no cache helps. The `fib` entry on this challenge measured 2.22x from
+removing exactly this, so it was worth measuring here. Identical arithmetic,
+written both ways, 2,000 steps each:
+
+| | notation | functions | per operation |
+| :--- | ---: | ---: | ---: |
+| `Nat` mul and mod | 316,158,610 | 245,369,177 | 24,450 against 6,750, **3.6x** |
+| `Int` mul and emod | 747,040,118 | 674,988,200 | 132,160 against 114,147, **1.14x** |
+| `Int` mul, sub and emod | 1,256,818,148 | 1,153,380,666 | 1.10x |
+
+**The instance chain costs about 18,000 instructions either way.** On a `Nat`
+operation, which is 6,750 of real work, that is 3.6x. On an `Int` operation,
+which is 114,147 because of the constructor case analysis, it is 14%. So the
+same change is worth a factor of 3.6 in the coefficient setup and 14% in the
+loop, which is the reverse of where the cost is, and the two cancel out to
+nearly nothing:
+
+* the loop's roughly 2,350 `Int` operations, written as functions, save about
+  43 million per case, **2.5%**, which does not change our rank;
+* the setup's `Nat` operations would save about 211 million at the hardest
+  size, 6.3% overall, but the setup is the specification's own code, so
+  capturing it means reimplementing `coefficientWidth`, `collectCoeffWord`,
+  `centeredNonzeroCoeff`, `coefficientsFrom` and `polyOf` and proving each
+  equal. Several rounds for one rank.
+
+`Candidate.lean` holds the loop half of this change, unbuilt. Its last failure
+was in `cancelFast_eq`: `rw` finishes with `rfl` at **reducible** transparency,
+which cannot see through the instance chain, so `mul_def` and `sub_def` are now
+there to bridge it explicitly. Replacing `lc ^ 2` was abandoned: the `show`
+failed, so `Pow Int Nat` does not resolve to the `1 * lc * lc` guessed here,
+and at 23 operations per case it is not worth finding out what it does resolve
+to.
+
 ## Which half of `costmodel.py` to cut: measured, not inferred
 
 `costmodel.py` puts 55% of the operations at the hardest size in the
@@ -458,7 +496,8 @@ traversal carrying it.
 | submission 692, the specification | 10,322,617,420 | 32 |
 | submission 1610, awaiting publication | ~10,240,776,000 | 28 |
 | **this entry** | **~9,657,187,286** | **27** |
-| the notation fix, if it is worth 10% | ~8,700,000,000 | 25 |
+| the notation fix in the loop, measured at 2.5% | ~9,415,000,000 | 27 |
+| the notation fix in the setup as well, 6.3% more | ~8,822,000,000 | 25 |
 | the loop packed | ~2,235,991,636 | 16 |
 | the loop packed and the generator jumped | ~1,416,419,868 | 8 |
 | rank 3 | 1,119,039,536 | 3 |

@@ -1,6 +1,27 @@
 import Spec
 
 /-!
+# NOT YET BUILT. The entry that has been measured is `Submission.lean`.
+
+This file is `Submission.lean` plus the notation change below, and it has NOT
+been through CI in this form. Its last build failed in `cancelFast_eq` with
+"unsolved goals", because `rw` finishes with `rfl` at reducible transparency
+and that is not enough to see through `HMul.hMul`, `instHMul`, `Mul.mul` and
+`Int.instMul`; `mul_def` and `sub_def` were added to bridge that explicitly
+and the proof now goes through `simp only`, which is the shape that worked for
+`premGo_eq` and `exactDivide_eq`. Whether it compiles is unmeasured.
+
+What it is worth is measured, and it is small. An `Int` operation written as
+`a * b` costs 132,160 instructions and written as `Int.mul a b` costs 114,147,
+so the notation is **13.6%** of an `Int` operation. Over the roughly 2,350
+such operations in the loop that is about 43 million per judged case, or 2.5%,
+which does not change our rank. The same measurement on `Nat` is a different
+story: 24,450 against 6,750, a factor of **3.6**, because a `Nat` operation is
+cheap enough that the instance chain is most of it. That is where this change
+would pay, and the `Nat` arithmetic is all in the coefficient setup, which is
+the specification's own code and would have to be reimplemented and proved
+equal in full.
+
 # polydisc: the multiplication by one that the specification always performs
 
 Measured facts this file is built on, all from the instruction counter in
@@ -69,6 +90,14 @@ example (a b : Int) : a - b = Int.sub a b := rfl
 example (a b : Int) : a / b = Int.ediv a b := rfl
 example (a b : Int) : a % b = Int.emod a b := rfl
 
+/-- The same four facts as rewrite rules, so a proof can move a term written
+with the functions into the notation the core lemmas are stated in. `rw` ends
+with `rfl` at reducible transparency only, which is not enough to see through
+the instance chain, so the bridge has to be explicit. -/
+theorem mul_def (a b : Int) : Int.mul a b = a * b := rfl
+
+theorem sub_def (a b : Int) : Int.sub a b = a - b := rfl
+
 /-! ## The scaling that is usually by one -/
 
 /-- `scalePolynomial`, which returns its argument when the factor is one. -/
@@ -122,12 +151,9 @@ theorem cancelFast_eq (lcG lcR : Int) : ∀ (cs ds : List Int),
   | cons c cs ih =>
     intro ds
     cases ds with
-    | nil => show Int.mul lcG c :: cancelFast lcG lcR cs [] = _
-             rw [ih []]
+    | nil => simp only [cancelFast, cancelPseudoLeading, mul_def, ih]
     | cons d ds =>
-      show Int.sub (Int.mul lcG c) (Int.mul lcR d)
-             :: cancelFast lcG lcR cs ds = _
-      rw [ih ds]
+      simp only [cancelFast, cancelPseudoLeading, mul_def, sub_def, ih]
 
 def premGo : Nat → Nat → List Int → List Int → Option (List Int)
   | 0, _, _, _ => none
@@ -226,11 +252,11 @@ theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
   funext d p
   exact exactDivide_eq d p
 
-/-- `lc ^ 2` unfolds to `1 * lc * lc`, so the specification multiplies by one
-here as well, once per step on top of the per-coefficient ones. -/
-theorem sq_eq (h : Int) : Int.mul h h = h ^ 2 := by
-  show Int.mul h h = 1 * h * h
-  rw [Int.one_mul]
+-- `lc ^ 2` was left alone deliberately. Replacing it with `Int.mul lc lc`
+-- failed with "'show' tactic failed, pattern", so `Pow Int Nat` does not
+-- resolve to the `1 * lc * lc` this file guessed, and finding what it does
+-- resolve to is not worth a round: it is 23 operations per judged case,
+-- about 0.3%.
 
 /-! ## The specification's subresultant loop, with both changes -/
 
@@ -242,7 +268,7 @@ def resultantGo : Nat → Bool → List Int → List Int → Option Int
       | some raw =>
           let divided :=
             if initial then some raw
-            else exactDivide (Int.mul (f.headD 0) (f.headD 0)) raw
+            else exactDivide ((f.headD 0) ^ 2) raw
           match divided with
           | none => none
           | some coefficients =>
@@ -263,8 +289,7 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | zero => intro _ _ _; rfl
   | succ n ih =>
     intro initial f g
-    rw [resultantGo, normalResultantGo, exactDivide_eq_fun, prem_eq_fun,
-      sq_eq]
+    rw [resultantGo, normalResultantGo, exactDivide_eq_fun, prem_eq_fun]
     -- Each side's matches compile to their own matcher, so `split` takes the
     -- two apart independently and invents a separate variable for the same
     -- scrutinee. Every shared scrutinee is therefore generalised by hand.
