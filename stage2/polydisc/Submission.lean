@@ -1,7 +1,7 @@
 import Spec
 
 /-!
-# polydisc — the multiplication by one that the specification always performs
+# polydisc: the multiplication by one that the specification always performs
 
 Measured facts this file is built on, all from the instruction counter in
 `.github/workflows/polydisc.yml`, which reproduces the leaderboard figure for

@@ -1,4 +1,4 @@
-# Submission note — `polydisc`
+# Submission note: `polydisc`
 
 ## The block to paste into the Submission note field
 
@@ -100,7 +100,7 @@ does. **Checked before it was trusted:**
 Within 4%. The residual is **not** the choice of representative inputs: two
 inputs in the same band differ by 0.1% to 0.3% here, because the operation
 count depends on the band and the degree and not on the particular stream. The
-likely source is the measurement boundary and the processor — callgrind's
+likely source is the measurement boundary and the processor: callgrind's
 synthetic CPU selects different GMP code paths from a PMU host, and the judge
 arms its counter around a replay of a binary export rather than around a
 freshly elaborated declaration. For ranking two designs against each other,
@@ -169,8 +169,8 @@ Measured by differencing pairs of loops that differ by one operation:
 | one list cell: match, cons and an `Int` add | ~15,000 |
 
 Read that table carefully, because it is where "width is free" has a limit.
-From 64 bits to 3,484 bits — 54x the width — an `Int` operation costs **1.17x**
-more. From 3,484 to 80,000 bits — 23x the width — it costs **18x** more. So
+From 64 bits to 3,484 bits , 54x the width , an `Int` operation costs **1.17x**
+more. From 3,484 to 80,000 bits , 23x the width , it costs **18x** more. So
 width is genuinely free up to a few thousand bits and roughly linear above
 twenty thousand. The judged cases still come out at a ratio of 1.60 because the
 operations on the widest intermediates are the few late subresultant steps,
@@ -184,7 +184,7 @@ analysis before it is arithmetic. Two further measurements of the same effect:
   arithmetic at 3,484 bits (429,519,156 against 289,863,222 for 500 steps),
   because the `negSucc` side goes through `negOfNat` and `subNatNat`. Half the
   coefficients in this problem are negative.
-* **multiplying an 80,000-bit number by one costs 170,162 instructions** — the
+* **multiplying an 80,000-bit number by one costs 170,162 instructions**: the
   constructor analysis and nothing else, against 2,860,000 for a real
   multiplication at that width (90,089,227 against the control's 56,056,802
   over 200 steps). So the specification's 276 multiplications by one per case
@@ -198,7 +198,7 @@ not quadratic here.
 
 `costmodel.py` puts 55% of the operations at the hardest size in the
 coefficient setup and 95% of the bit-work in the subresultant loop. Operation
-count is the currency, so the operation split is the relevant one — and it
+count is the currency, so the operation split is the relevant one: and it
 still points at the wrong half, because the setup's operations are narrow `Nat`
 operations and the loop's are `Int` operations, which cost 5.4x more each.
 
@@ -217,7 +217,7 @@ no setup at all, and the specification end to end.
 The two parts add to the whole within 0.8%, so nothing material is missing from
 the split. **55% of the operations are 12% of the cost**, and the loop is
 88% to 96% of it. Note also that the loop costs the same 1.43 billion at k=15
-and at k=205 — it does not care about the coefficient width — and 2.10 billion
+and at k=205 , it does not care about the coefficient width , and 2.10 billion
 at k=3,484, which is the only place the widest intermediates bite.
 
 So the target is **`Int` operations inside the subresultant loop**, about 4,700
@@ -289,7 +289,7 @@ resultants agree**, with **five rebasings** over the 23 steps and a final slot
 of 303,476 bits at the hardest difficulty. The alignment that makes it work is
 worth writing down, because getting it wrong is silent: the `A` term takes `f`
 without its leading coefficient, the `B'` term takes `g` without its leading
-coefficient shifted up one slot, and the `C` term takes **`g` entire** — that
+coefficient shifted up one slot, and the `C` term takes **`g` entire**. That
 last one is what makes the top slot vanish, since `A*f1 - B'*g1 - C*g0` is
 identically zero. Using `g`'s tail there instead leaves `g0*C` in the top slot
 and the answer is wrong.
@@ -341,7 +341,7 @@ One correction to that, also measured. The base cannot be fixed before the run
 starts: an a priori bound on the *final* coefficient would need the Hadamard
 argument after all, and propagating one from the input alone, without the
 leading coefficients in hand, compounds doubly exponentially and is useless. It
-can be fixed **adaptively** — start from the input bound and double the slot
+can be fixed **adaptively**: start from the input bound and double the slot
 whenever the propagated bound outgrows half of it, which costs one unpack and
 one repack when it happens. `fused.py` counts those: **five, over 23 steps**,
 at every judged difficulty. At about 48 operations each that is 240 operations
@@ -365,15 +365,15 @@ should read 4.6x.
 The ordering is the useful part. **Packing the loop alone is worth 4.6x**, and
 most of what then remains at the hardest size is the coefficient setup, 291
 million of 838 million. Cutting that means advancing the generator by doubling
-jumps — composing the LCG's `(A, C)` jump parameters and stepping every packed
-lane at once, which replaces 697 sequential states with about ten doublings —
-and needs `Nat.land` against a lane mask, measured above at one operation.
+jumps: composing the LCG's `(A, C)` jump parameters and stepping every packed
+lane at once, which replaces 697 sequential states with about ten doublings.
+It needs `Nat.land` against a lane mask, measured above at one operation.
 
 Both together predict 1.42 billion, which is rank 6. Rank 3 at 1,119,039,536
 needs the tight bound as well. All of it is one formalisation project of
-perhaps thirty elementary lemmas — balanced-digit recovery, `Int.natAbs`
-monotonicity, the evaluation homomorphism — written against 35-minute CI rounds
-with no local toolchain. It is days of work, not an afternoon, and it is the
+perhaps thirty elementary lemmas, among them balanced-digit recovery,
+`Int.natAbs` monotonicity and the evaluation homomorphism, written against
+35-minute CI rounds with no local toolchain. It is days of work, not an afternoon, and it is the
 only route measured here that reaches the leaders.
 
 ## What this entry changes
@@ -390,7 +390,7 @@ sides say `c = 0`. Already live as submission 1610.
 
 **No multiplication by one.** `pseudoRemainderGo` finishes with
 `scalePolynomial ((divisor.headD 0) ^ remaining) dividend`. In the normal case
-— every judged input — the dividend has exactly one coefficient more than the
+(every judged input) the dividend has exactly one coefficient more than the
 divisor, so `remaining` starts at 2, two cancellation steps run, and the
 factor is `lc ^ 0 = 1`. The specification multiplies every coefficient of the
 widest intermediate it ever holds by one: **276 multiplications and 276 list
@@ -441,7 +441,7 @@ would give 10,109,559,092, against 10,026,832,267 for the two together. Keeping
 both is **0.82% better**, because the division change's 3% win at the two
 hardest sizes outweighs its 1% loss at the other four.
 
-The saving is larger than the multiplications alone account for — 276
+The saving is larger than the multiplications alone account for: 276
 multiplications by one at 170,162 each would be 47 million, and the measured
 saving at the easiest size is 84 million. The rest is the list machinery that
 went with them: `scalePolynomial` is a structural recursion over the whole
@@ -465,8 +465,8 @@ traversal carrying it.
 
 The gap from here to rank 3 is **8.6x**, and nothing in the list representation
 closes it. Everything costed in this file for the specification's own
-representation — the scaling, the division, the notation, the length tests, the
-fused step — comes to at most 1.35x in total. The packed representation is the
+representation, which is to say the scaling, the division, the notation, the
+length tests and the fused step, comes to at most 1.35x in total. The packed representation is the
 only route measured that reaches the leaders, and even that needs the generator
 packed as well.
 
@@ -479,7 +479,7 @@ packed as well.
 | carry the list lengths instead of recomputing them | ~2,700 list cells | ~3% |
 | `derivHL` without its quadratic `getD` walk | 276 list cells | ~0.2% |
 | replace the setup's powers of two with multiplications | **negative**, adds ~1,600 operations | discarded, see above |
-| a hand-rolled sign-magnitude `Int` | — | the measured 5.4x `Int` penalty is the cost of a constructor case analysis, which any signed representation also pays |
+| a hand-rolled sign-magnitude `Int` | not counted | the measured 5.4x `Int` penalty is the cost of a constructor case analysis, which any signed representation also pays |
 
 ### The fused step, if someone wants the 1.2x
 
@@ -495,10 +495,10 @@ Seven `Int` operations per output coefficient instead of nine, and the
 multiplication by one disappears with them.
 
 The algebra is therefore settled and the cost is the proof. It needs the step
-to be guarded at runtime on five conditions, each one comparison — `f0 != 0`,
+to be guarded at runtime on five conditions, each one comparison: `f0 != 0`,
 `g0 != 0`, `f.length == g.length + 1`, `C != 0`, and the result's own leading
-coefficient nonzero — with anything else falling back to
-`normalResultantGo` itself, so only the successful path has to be proved. That
+coefficient nonzero, with anything else falling back to `normalResultantGo`
+itself, so only the successful path has to be proved. That
 path needs about eight lemmas:
 
 1. `(cancelPseudoLeading a b cs ds).length = cs.length`
