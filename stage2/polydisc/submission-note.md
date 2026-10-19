@@ -1,5 +1,75 @@
 # Submission note — `polydisc`
 
+## The block to paste into the Submission note field
+
+```
+Approach: the specification's own algorithm with two redundant big-integer
+operations per coefficient removed, chosen by measuring the judged metric
+rather than modelling it.
+
+The metric is defined as an instruction count of the kernel check of one
+declaration. That is reproducible outside the judge: callgrind counts guest
+instructions exactly, and differencing a file against itself compiled with
+debug.skipKernelTC removes the elaborator, leaving the kernel check alone. On
+the shipped starter this instrument reads 10,716,251,946 against the
+leaderboard's 10,322,617,420 for the same file, a ratio of 1.038, and it
+reproduces to 0.014% across runners. Every figure below is that measurement.
+
+What it says is that the judge charges for kernel reduction steps and that
+operand width is nearly free: the easiest judged case costs 1,482,800,494 and
+the hardest 2,377,037,902, a ratio of 1.60, where the operand widths differ by
+140 and the discriminant by 142. A bit-length proxy predicts 97 for that ratio
+and a schoolbook proxy 8,205. Measuring the parts separately, the coefficient
+setup is 4.5% of the easiest case and 12.3% of the hardest, and the
+subresultant loop is the remaining 88% to 96%, so the loop's Int operations are
+the only thing worth removing.
+
+The specification performs two per coefficient that it does not need.
+
+First, pseudoRemainderGo finishes with scalePolynomial ((divisor.headD 0) ^
+remaining) dividend. In the normal case, which every judged input takes, the
+dividend has exactly one coefficient more than the divisor, so remaining starts
+at 2, two cancellation steps run, and the factor is lc ^ 0 = 1: the
+specification multiplies every coefficient of the widest intermediate it ever
+holds by one, 276 times per judged case, and walks and rebuilds the list to do
+it. scaleP returns the list unchanged when the factor is one and calls the
+specification's own scalePolynomial otherwise, so an abnormal degree drop,
+where the factor really is lc or lc ^ 2, still scales. The obligation is one
+lemma: multiplying a list by one returns it.
+
+Second, exactDividePolynomial tests coefficient % divisor != 0 and then divides
+again for the quotient. This computes the quotient once and checks it by
+multiplying back. Correctness rests on one identity, c % d = 0 if and only if
+c / d * d = c, proved from Int.ediv_mul_cancel_of_emod_eq_zero and
+Int.emod_def; it needs no hypothesis about the inputs and holds for a zero
+divisor too, where both sides say c = 0.
+
+Measured on the six judged sizes, starter against this entry, built and counted
+on the same runner in the same job: 10,717,732,851 against 10,026,832,267, a
+6.45% reduction, faster on every individual case by between 5.66% and 7.48%.
+
+impl_correct is proved for every n. #print axioms Submission.impl_correct
+reports [propext, Quot.sound], inside the permitted set and without
+Classical.choice.
+
+No precomputed answers. There is no table of discriminants, no hardcoded value
+and no input-dependent branch carrying an answer; every value is computed at
+reduction time from the specification's own generator stream.
+
+Acknowledgements and references. No Contributor Network item and no external
+source was used. The subresultant PRS and the Bareiss fallback are the
+specification's. What is specific here is the measurement that located the cost
+in the loop rather than the setup, and the observation that the loop's final
+scaling is always by one in the normal case.
+```
+
+| Field | Value |
+|---|---|
+| Problem | **polydisc** |
+| Submission source | **Upload Submission.lean** |
+| File | `stage2/polydisc/Submission.lean` |
+| Reference | leave empty; nothing from the Contributor Network was used |
+
 ## The instrument, first, because everything below depends on it
 
 The rules say what the metric is. `rules/evaluation.md`: "In three separate
@@ -344,7 +414,33 @@ mean: the shipped starter measured **10,716,251,946** in one CI run and
 **10,717,732,851** in another, on different runners, a difference of
 **0.014%**. Anything larger than that is signal.
 
-<!-- MEASURED CANDIDATE RESULTS GO HERE -->
+| judged case | shipped starter | this entry | |
+| :--- | ---: | ---: | ---: |
+| 2^18, k=15 | 1,482,800,494 | 1,398,747,059 | **−5.67%** |
+| 2^25, k=15 | 1,482,583,183 | 1,398,631,936 | **−5.66%** |
+| 2^37, k=205 | 1,502,783,276 | 1,417,114,611 | **−5.70%** |
+| 2^45, k=205 | 1,504,740,830 | 1,417,680,925 | **−5.79%** |
+| 2^57, k=3484 | 2,377,037,902 | 2,199,291,242 | **−7.48%** |
+| 2^62, k=3484 | 2,367,787,166 | 2,195,366,494 | **−7.28%** |
+| total | 10,717,732,851 | **10,026,832,267** | **−6.45%** |
+
+Faster on every case, by more than 400 times the instrument's reproducibility.
+Scaled to the board's figure for the starter, that predicts
+**9,657,187,286**, which on the board published 18 October 2026 is **rank 27**,
+up from rank 32.
+
+`#print axioms Submission.impl_correct` reports `[propext, Quot.sound]`, inside
+the permitted set and without `Classical.choice`.
+
+The saving is larger than the multiplications alone account for — 276
+multiplications by one at 170,162 each would be 47 million, and the measured
+saving at the easiest size is 84 million. The rest is the list machinery that
+went with them: `scalePolynomial` is a structural recursion over the whole
+polynomial, so skipping it removes 276 matcher steps and 276 cons cells as
+well as the arithmetic. **The operation count was right about the direction and
+low by half about the size**, which is the usual direction for an operation
+count that charges one unit per arithmetic operation and nothing for the
+traversal carrying it.
 
 ## What is not worth trying, with numbers
 
