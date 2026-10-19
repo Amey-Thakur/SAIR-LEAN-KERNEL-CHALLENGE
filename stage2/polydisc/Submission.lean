@@ -1,41 +1,136 @@
 import Spec
 
 /-!
-# polydisc — one big division where the specification does two
+# polydisc — the multiplication by one that the specification always performs
 
-The specification's subresultant step divides every coefficient of the
-pseudo-remainder by the square of the previous leading coefficient, and
-`exactDividePolynomial` does it like this:
+Measured facts this file is built on, all from the instruction counter in
+`.github/workflows/polydisc.yml`, which reproduces the leaderboard figure for
+the shipped starter to within 4%:
 
-    if divisor == 0 || coefficient % divisor != 0 then none
-    else ... coefficient / divisor ...
+* the metric is the number of kernel reduction steps, and the width of the
+  operands is nearly free. The easiest judged case costs 1,483,351,202 and the
+  hardest 2,375,274,780, a ratio of 1.60, where the operand widths differ by a
+  factor of 140. Only an operation count predicts that; a bit-length proxy
+  predicts 97 and a schoolbook proxy 8,205.
+* an `Int` operation costs 5.4x a `Nat` operation of the same width, because
+  `Int` is an inductive type and every operation is a case analysis before it
+  is arithmetic.
+* the coefficient setup is therefore the wrong half to cut. It is 55% of the
+  operations at the hardest size but they are narrow `Nat` operations, and the
+  easiest judged case, whose setup is 15x smaller, still costs 62% of the
+  hardest. What the two cases share is the subresultant loop, whose operation
+  count does not depend on the coefficient width at all.
 
-That is two full big-integer divisions of the same pair: one to decide
-whether the division is exact, and the same division again for the quotient.
-`%` on `Int` is not cheaper than `/`; `Int.emod_def` says as much,
-`a % b = a - b * (a / b)`.
+So the target is `Int` operations inside the loop, and the specification
+performs one per coefficient that it does not need.
 
-At the largest judged size the coefficients reach about eighty thousand bits,
-and `costmodel.py` counts the divisibility test alone at a fifth of all the
-bit-length flowing through the multiplications and divisions of the whole
-computation. This file computes the quotient once, binds it, and checks it by
-multiplying back: one division and one multiplication instead of two
-divisions. The binding is what makes that true rather than cosmetic, since
-the kernel shares a value it has already reduced.
+`pseudoRemainderGo` finishes with
 
-The guard is kept exactly, so a non-exact division still returns `none` and
-the Bareiss fallback is still selected on the same inputs. Nothing else
-changes: the polynomial, the derivative, the pseudo-remainder and the
-fallback are the specification's own, so the only obligation is that the new
-division agrees with the old one everywhere. That is proved from
-divisibility, and it holds for a zero divisor too, where `c / 0 * 0 = 0` and
-both sides say `c = 0`.
+    some (scalePolynomial ((divisor.headD 0) ^ remaining) dividend)
+
+where `remaining` counts down from `dividend.length - divisor.length + 1`. In
+the normal case, which is the case every judged input takes, the dividend has
+exactly one more coefficient than the divisor, so `remaining` starts at 2, two
+cancellation steps run, and the scaling factor is `lc ^ 0 = 1`. The
+specification then multiplies every coefficient of the widest intermediate it
+ever holds by one: 276 multiplications and 276 list cells per judged case,
+performed on the pseudo-remainder before the exact division shrinks it.
+
+`scaleP` returns the list unchanged when the factor is one and calls the
+specification's own `scalePolynomial` otherwise, so nothing is assumed about
+`remaining`: an abnormal degree drop, where the factor really is `lc` or
+`lc ^ 2`, still scales. The obligation is one lemma, that multiplying a list
+by one returns it.
+
+The division removed from `exactDividePolynomial` in the previous entry is
+kept: the specification tests `coefficient % divisor != 0` and then divides
+again for the quotient, and one division plus one multiplication by the short
+quotient does both.
 -/
 
 namespace Submission
 
-/-- `exactDividePolynomial`, with the divisibility test done by multiplying
-the quotient back rather than by a second division. -/
+/-! ## The scaling that is usually by one -/
+
+/-- `scalePolynomial`, which returns its argument when the factor is one. -/
+def scaleP (factor : Int) (p : List Int) : List Int :=
+  if factor == 1 then p else scalePolynomial factor p
+
+theorem scalePolynomial_one : ∀ p, scalePolynomial 1 p = p := by
+  intro p
+  induction p with
+  | nil => rfl
+  | cons c cs ih =>
+    show (1 : Int) * c :: scalePolynomial 1 cs = c :: cs
+    rw [ih, Int.one_mul]
+
+theorem scaleP_eq (factor : Int) (p : List Int) :
+    scaleP factor p = scalePolynomial factor p := by
+  by_cases h : (factor == 1) = true
+  · have hf : factor = 1 := eq_of_beq h
+    -- the order matters and `simp only` gets it wrong: rewriting `factor` to
+    -- one first turns the condition into `1 == 1`, which leaves `if c then p
+    -- else p` with no rule to collapse it and makes `if_pos h` unused, which
+    -- this package reports as an error. `rw` takes the branch first.
+    show (if factor == 1 then p else scalePolynomial factor p)
+        = scalePolynomial factor p
+    rw [if_pos h, hf, scalePolynomial_one]
+  · show (if factor == 1 then p else scalePolynomial factor p)
+        = scalePolynomial factor p
+    rw [if_neg h]
+
+/-! ## The pseudo-remainder, with that scaling guarded
+
+The shape is the specification's, so the proof is one rewrite at each step
+rather than a case analysis on the two lists. -/
+
+def premGo : Nat → Nat → List Int → List Int → Option (List Int)
+  | 0, _, _, _ => none
+  | fuel + 1, remaining, divisor, dividend =>
+      let dividend := trimLeading dividend
+      if dividend.length < divisor.length then
+        some (scaleP ((divisor.headD 0) ^ remaining) dividend)
+      else
+        match divisor, dividend with
+        | lcG :: divisorTail, lcR :: dividendTail =>
+            let next :=
+              trimLeading
+                (cancelPseudoLeading lcG lcR dividendTail divisorTail)
+            premGo fuel (remaining - 1) divisor next
+        | _, _ => none
+
+theorem premGo_eq : ∀ (fuel remaining : Nat) (divisor dividend : List Int),
+    premGo fuel remaining divisor dividend
+      = pseudoRemainderGo fuel remaining divisor dividend := by
+  intro fuel
+  induction fuel with
+  | zero => intro _ _ _; rfl
+  | succ n ih =>
+    intro remaining divisor dividend
+    simp only [premGo, pseudoRemainderGo, scaleP_eq, ih]
+    -- what is left is the same match under two auto-generated matchers,
+    -- which only full transparency sees through
+    all_goals rfl
+
+def prem (dividend divisor : List Int) : Option (List Int) :=
+  let dividend := trimLeading dividend
+  let divisor := trimLeading divisor
+  if divisor.isEmpty then none
+  else if dividend.length < divisor.length then some dividend
+  else
+    premGo (dividend.length + 1)
+      (dividend.length - divisor.length + 1) divisor dividend
+
+theorem prem_eq (dividend divisor : List Int) :
+    prem dividend divisor = pseudoRemainder dividend divisor := by
+  simp only [prem, pseudoRemainder, premGo_eq]
+
+theorem prem_eq_fun : prem = pseudoRemainder := by
+  funext a b
+  exact prem_eq a b
+
+/-! ## One division where the specification does two -/
+
 def exactDivide (divisor : Int) : List Int → Option (List Int)
   | [] => some []
   | coefficient :: coefficients =>
@@ -46,7 +141,6 @@ def exactDivide (divisor : Int) : List Int → Option (List Int)
         | none => none
         | some rest => some (quotient :: rest)
 
-/-- The test this file replaces, as an identity on `Int`. -/
 theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
   constructor
   · intro h
@@ -55,8 +149,6 @@ theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
     rw [Int.emod_def, Int.mul_comm, h]
     omega
 
-/-- The two guards decide the same thing, so the bodies around them are
-already identical. -/
 theorem guard_eq (c divisor : Int) :
     (divisor == 0 || c / divisor * divisor != c)
       = (divisor == 0 || c % divisor != 0) := by
@@ -79,20 +171,18 @@ theorem exactDivide_eq (divisor : Int) :
   | nil => rfl
   | cons c cs ih =>
     simp only [exactDivide, exactDividePolynomial, guard_eq, ih]
-    -- what is left is the same match under two auto-generated matchers,
-    -- which only full transparency sees through
     all_goals rfl
 
-/-- As functions, so the substitution below is a rewrite. -/
 theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
   funext d p
   exact exactDivide_eq d p
 
-/-- The specification's subresultant loop, with the new division. -/
+/-! ## The specification's subresultant loop, with both changes -/
+
 def resultantGo : Nat → Bool → List Int → List Int → Option Int
   | 0, _, _, _ => none
   | fuel + 1, initial, f, g =>
-      match pseudoRemainder f g with
+      match prem f g with
       | none => none
       | some raw =>
           let divided :=
@@ -111,8 +201,6 @@ def resultantGo : Nat → Bool → List Int → List Int → Option Int
                   else
                     none
 
-/-- Both bodies are the same once the division is rewritten, so the induction
-closes by rewriting rather than by taking the matches apart. -/
 theorem resultantGo_eq : ∀ fuel initial f g,
     resultantGo fuel initial f g = normalResultantGo fuel initial f g := by
   intro fuel
@@ -120,12 +208,10 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | zero => intro _ _ _; rfl
   | succ n ih =>
     intro initial f g
-    rw [resultantGo, normalResultantGo, exactDivide_eq_fun]
+    rw [resultantGo, normalResultantGo, exactDivide_eq_fun, prem_eq_fun]
     -- Each side's matches compile to their own matcher, so `split` takes the
     -- two apart independently and invents a separate variable for the same
-    -- scrutinee. Every shared scrutinee is therefore generalised by hand,
-    -- which rewrites both sides at once, and each leaf is then literally the
-    -- same term or one use of the induction hypothesis.
+    -- scrutinee. Every shared scrutinee is therefore generalised by hand.
     cases hpr : pseudoRemainder f g with
     | none => rfl
     | some raw =>
@@ -170,7 +256,8 @@ def resultant (f g : List Int) : Option Int :=
   else
     none
 
-theorem resultant_eq (f g : List Int) : resultant f g = normalResultant f g := by
+theorem resultant_eq (f g : List Int) :
+    resultant f g = normalResultant f g := by
   rw [resultant, normalResultant, resultantGo_eq]
 
 def resultantOf (p : List Int) : Int :=
@@ -179,7 +266,8 @@ def resultantOf (p : List Int) : Int :=
   | some r => r
   | none => bareissDet (monicReducedSylvester p derivative)
 
-theorem resultantOf_eq (p : List Int) : resultantOf p = resultantFromPoly p := by
+theorem resultantOf_eq (p : List Int) :
+    resultantOf p = resultantFromPoly p := by
   rw [resultantOf, resultantFromPoly, resultant_eq]
   all_goals rfl
 

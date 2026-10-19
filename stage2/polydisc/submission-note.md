@@ -337,9 +337,14 @@ fuel, and the Bareiss fallback.
 Instrument as above: callgrind instruction counts, one process per case, kernel
 check isolated by differencing against `debug.skipKernelTC`, in the real
 problem package at pinned commit `940f0a2ead23ef70ab1387edabb347e629111edd`,
-starter and candidate on the same runner in the same job.
+starter and candidate built and measured on the same runner in the same job.
 
-<!-- ROUND 2 RESULTS GO HERE -->
+The instrument's own reproducibility, which bounds what any figure below can
+mean: the shipped starter measured **10,716,251,946** in one CI run and
+**10,717,732,851** in another, on different runners, a difference of
+**0.014%**. Anything larger than that is signal.
+
+<!-- MEASURED CANDIDATE RESULTS GO HERE -->
 
 ## What is not worth trying, with numbers
 

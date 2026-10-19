@@ -217,6 +217,86 @@ def micro() -> list[tuple[str, str, str]]:
                          n, "7", hx(acc)),
                     f"{n} x (Int mul + Int emod), {bits}-bit operands"))
 
+    # ---- what the notation costs, as against the function it resolves to ----
+    # `a * b` elaborates to `@HMul.hMul Int Int Int instHMul a b`, and before
+    # the kernel reaches an accelerated operation it must unfold the `HMul.hMul`
+    # projection, the `instHMul` definition, the `Mul.mul` projection and the
+    # `Int.instMul` definition. The arguments differ every time, so no cache
+    # can help. The `fib` entry on this challenge measured 2.22x from removing
+    # exactly this. Each pair below performs identical arithmetic and differs
+    # only in whether it is written with notation or with the function.
+    reps = 2000
+    c64 = (1 << 63) | 0x9E3779B97F4A7C15
+    m64 = (1 << 64) - 59
+    acc = 7
+    for _ in range(reps):
+        acc = (acc * c64) % m64
+    out.append(("C_nat_notation",
+                loop("cnatn", "Nat", f"(acc * {hx(c64)}) % {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x Nat mul and mod written `a * b % m`"))
+    out.append(("C_nat_direct",
+                loop("cnatd", "Nat",
+                     f"Nat.mod (Nat.mul acc {hx(c64)}) {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x the same, written Nat.mod (Nat.mul ..)"))
+    out.append(("C_int_notation",
+                loop("cintn", "Int", f"(acc * {hx(c64)}) % {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x Int mul and emod written `a * b % m`"))
+    out.append(("C_int_direct",
+                loop("cintd", "Int",
+                     f"Int.emod (Int.mul acc {hx(c64)}) {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x the same, written Int.emod (Int.mul ..)"))
+
+    # and the subtraction, which is what the pseudo-remainder actually does:
+    # `Int.sub` is itself defined as `m + (-n)`, so some of the chain is inside
+    # core's own definition and cannot be avoided. This measures what is left.
+    acc = 7
+    for _ in range(reps):
+        acc = (acc * c64 - c64) % m64
+    out.append(("C_sub_notation",
+                loop("csubn", "Int",
+                     f"(acc * {hx(c64)} - {hx(c64)}) % {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x Int mul, sub and emod, written with notation"))
+    out.append(("C_sub_direct",
+                loop("csubd", "Int",
+                     f"Int.emod (Int.sub (Int.mul acc {hx(c64)}) "
+                     f"{hx(c64)}) {hx(m64)}",
+                     reps, "7", hx(acc)),
+                f"{reps} x the same, written with Int.sub and Int.mul"))
+
+    # ---- the equation compiler against an explicit recursor ----
+    # A structurally recursive definition compiles to `brecOn`, which builds a
+    # `below` structure the kernel then projects out of. An explicit `List.rec`
+    # has none of that. Same arithmetic, same list.
+    vals = [odd_hex(64, 400 + i) for i in range(24)]
+    lit = ", ".join(hx(v) for v in vals)
+    rounds = 200
+    s = sum(vals) * rounds
+    out.append(("C_eqn_compiler",
+                f"def WS : List Int := [{lit}]\n"
+                "def total : List Int -> Int\n"
+                "  | [] => 0\n"
+                "  | x :: xs => Int.add x (total xs)\n"
+                "def reps : Nat -> Int\n"
+                "  | 0 => 0\n"
+                "  | k + 1 => Int.add (total WS) (reps k)\n"
+                f"theorem t : reps {rounds} = {hx(s)} := by rfl\n",
+                f"{rounds} x summing a 24-element list, equation compiler"))
+    out.append(("C_recursor",
+                f"def WS : List Int := [{lit}]\n"
+                "def total (l : List Int) : Int :=\n"
+                "  List.rec (motive := fun _ => Int) 0\n"
+                "    (fun x _ ih => Int.add x ih) l\n"
+                "def reps : Nat -> Int\n"
+                "  | 0 => 0\n"
+                "  | k + 1 => Int.add (total WS) (reps k)\n"
+                f"theorem t : reps {rounds} = {hx(s)} := by rfl\n",
+                f"{rounds} x the same, written as an explicit List.rec"))
+
     # ---- does a negative operand cost more than a positive one ----
     # `Int` is an inductive type with two constructors, so every operation is a
     # case analysis before it is arithmetic, and the `negSucc` side goes

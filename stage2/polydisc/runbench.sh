@@ -65,6 +65,13 @@ both Base
 
 for i in 0 1 2 3 4 5; do both "J$i"; done
 
+if [ "$SCOPE" = "chains" ]; then
+  for b in C_nat_notation C_nat_direct C_int_notation C_int_direct \
+           C_sub_notation C_sub_direct C_eqn_compiler C_recursor; do
+    both "$b"
+  done
+fi
+
 if [ "$SCOPE" = "round2" ]; then
   for b in B_setup_easy B_loop_easy B_whole_easy \
            B_setup_mid  B_loop_mid  B_whole_mid \
