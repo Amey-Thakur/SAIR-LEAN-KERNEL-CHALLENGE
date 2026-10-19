@@ -432,6 +432,13 @@ up from rank 32.
 `#print axioms Submission.impl_correct` reports `[propext, Quot.sound]`, inside
 the permitted set and without `Classical.choice`.
 
+**Both changes are kept, and that was checked rather than assumed.** Since the
+division change loses 1% on the four narrow cases, it was worth asking whether
+to drop it. Decomposing the two measurements: the scaling change on its own
+would give 10,109,559,092, against 10,026,832,267 for the two together. Keeping
+both is **0.82% better**, because the division change's 3% win at the two
+hardest sizes outweighs its 1% loss at the other four.
+
 The saving is larger than the multiplications alone account for — 276
 multiplications by one at 170,162 each would be 47 million, and the measured
 saving at the easiest size is 84 million. The rest is the list machinery that
