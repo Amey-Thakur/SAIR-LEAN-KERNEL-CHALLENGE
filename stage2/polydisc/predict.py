@@ -201,14 +201,19 @@ def packed_estimate(n: int, slack: float,
         per = int(wide * (scalar ** 0.585))
         work += 6 * per
     # the coefficient setup is unchanged and is cheap Nat work
-    words = sum((coefficient_width(k, j) + 63) // 64 for j in range(1, 25))
+    # The setup is not estimated from its operation count, it is MEASURED:
+    # 67,284,224 at k=15, 80,983,619 at k=205 and 291,518,041 at k=3,484, from
+    # the `B_setup_*` benchmarks. Pricing it at PER_OP would overstate it by
+    # 3.7x, because its operations are narrow `Nat` ones at about 68,000 each
+    # rather than the loop's `Int` ones.
+    setup = {15: 67_284_224, 36: 80_983_619, 205: 80_983_619,
+             1001: 291_518_041, 3484: 291_518_041}[k]
     if cheap_setup:
         # the generator advanced by doubling jumps, all lanes at once: about
-        # ten doublings of eight operations each, plus the jump constants
-        ops += 150
-    else:
-        ops += 6 * words                        # the specification's own
-    return ops, work, ops * PER_OP + work
+        # ten doublings of eight operations each, plus the jump constants,
+        # which at the measured 68,000 per setup operation is about 10 million
+        setup = 10_000_000
+    return ops, work, ops * PER_OP + work + setup
 
 
 def report_packed() -> None:

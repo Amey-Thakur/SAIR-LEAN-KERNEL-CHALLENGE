@@ -351,28 +351,30 @@ What it would be worth, from `predict.py --packed`, priced at the measured
 250,000 instructions per operation and GMP's `N * S^0.585` for an unbalanced
 product:
 
-| design | predicted total | against the board |
-| :--- | ---: | ---: |
-| loop packed, bound propagated from the data | 3,678,419,868 | 2.8x |
-| loop packed, bound tight to the coefficient size | 3,189,958,752 | 3.2x |
-| loop packed **and** the generator advanced by doubling jumps | **1,581,419,868** | **6.5x** |
+| design | predicted total | against the board | rank it would take |
+| :--- | ---: | ---: | ---: |
+| loop packed, bound propagated from the data | 2,235,991,636 | **4.6x** | 17 |
+| loop packed, bound tight to the coefficient size | 1,747,530,520 | 5.9x | 15 |
+| loop packed **and** the generator advanced by doubling jumps | **1,416,419,868** | **7.3x** | **6** |
 
-The ordering in that table is the useful part. Packing the loop alone is worth
-2.8x and stops there, because once the loop is cheap the **coefficient setup
-becomes the bottleneck**: 4,435 operations at the hardest size, which at
-250,000 each is 1.1 billion of the 1.59 billion that remains. So the setup is
-the right second target and the wrong first one. Cutting it means advancing the
-generator by doubling jumps — composing the LCG's `(A, C)` jump parameters and
-stepping every packed lane at once — which replaces 697 sequential states with
-about ten doublings, and needs `Nat.land` against a lane mask, measured above
-at one operation.
+The setup is priced from its measurement, 291,518,041 at the hardest size, not
+from its operation count: pricing it at the loop's rate would overstate it by
+3.7x and that error made an earlier version of this table read 2.8x where it
+should read 4.6x.
 
-Both together predict 1.58 billion, which is rank 10 or 11 on the published
-board. Rank 3 at 1,119,039,536 needs the tight bound as well. All of it is one
-formalisation project of perhaps thirty elementary lemmas — balanced-digit
-recovery, `Int.natAbs` monotonicity, the evaluation homomorphism — written
-against 45-minute CI rounds with no local toolchain. It is days of work, not an
-afternoon, and it is the only route measured here that reaches the leaders.
+The ordering is the useful part. **Packing the loop alone is worth 4.6x**, and
+most of what then remains at the hardest size is the coefficient setup, 291
+million of 838 million. Cutting that means advancing the generator by doubling
+jumps — composing the LCG's `(A, C)` jump parameters and stepping every packed
+lane at once, which replaces 697 sequential states with about ten doublings —
+and needs `Nat.land` against a lane mask, measured above at one operation.
+
+Both together predict 1.42 billion, which is rank 6. Rank 3 at 1,119,039,536
+needs the tight bound as well. All of it is one formalisation project of
+perhaps thirty elementary lemmas — balanced-digit recovery, `Int.natAbs`
+monotonicity, the evaluation homomorphism — written against 35-minute CI rounds
+with no local toolchain. It is days of work, not an afternoon, and it is the
+only route measured here that reaches the leaders.
 
 ## What this entry changes
 
