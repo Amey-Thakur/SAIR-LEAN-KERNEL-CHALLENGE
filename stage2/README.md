@@ -203,3 +203,43 @@ at `a_bits + b_bits` and so overstates a division by a nearly equal divisor.
 
 **So: count operations, not bits.** That is why the lane-packed row worked, and
 it is the rule to apply to the remaining problems.
+
+## The judged outcome, 19 October 2026 — and which proxy was right
+
+`ca-rule110` landed, and it is the calibration this challenge lacked.
+
+| problem | before | after | | distance to rank 3 | rank |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| `ca-rule110` | 2,156,390,889 | **33,058,261** | **65.2x** | 662.5x to **10.2x** | 34/39 to **31/41** |
+| `polydisc` | 10,322,617,420 | 10,144,444,286 | 1.02x | 9.2x to 9.1x | 32/33 to **28/34** |
+
+`fib` was submitted after the 00:00Z cutoff and lands tomorrow. At its measured
+2.22x kernel ratio it would reach about 43,352,533, which is **6.1x** from rank
+3 and would make it the closest of all eight problems to a podium.
+
+**Which predictor called the 65.2x.** All three were available before
+submitting, and they disagreed by a factor of six:
+
+| proxy | predicted |
+| :--- | ---: |
+| operation count | 30.2x |
+| raw wall clock, start-up included | 8.9x |
+| **wall clock with start-up subtracted** | **56.5x** |
+
+The start-up-subtracted clock was right. The raw clock understated the result
+by a factor of seven, because Lean start-up is a fixed 0.24 s that neither
+design can avoid and it swamped a computation that had fallen to 0.04 s. The
+operation count understated it by two.
+
+That last point corrects what this file said yesterday. The worry on this
+repository had always been that an operation count **overstates** a gain, from
+the row-only 5.6x and from polydisc's bit-length proxy. On the judged metric
+the count **understated** it. So the ordering to use is: subtract start-up and
+trust the clock; treat the operation count as a sound but conservative guide to
+direction; and never quote a raw wall-clock ratio, or a bit-length proxy, as a
+speedup.
+
+**What this does not change.** `polydisc` moved 1.8% and is still 9.1x short,
+which is what a 3% change was always going to do. `ca-rule110` went from two
+orders of magnitude off the pace to one, which is the whole return on the lane
+packing, and it is now a constant-factor problem rather than an algorithmic one.
