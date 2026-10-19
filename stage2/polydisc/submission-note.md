@@ -446,6 +446,7 @@ traversal carrying it.
 
 | change | operations saved per case | priced at |
 | :--- | ---: | ---: |
+| `List.length` tests replaced by a parallel walk | ~1,800 list cells, each paying a matcher, four instance unfoldings for `+ 1` and a `Nat.add` | ~11%, and the cheap half of it is `remainder.length + 1 == g.length`, a `Bool` test with no `Decidable` instance to juggle; the `dividend.length < divisor.length` half needs `if_pos`/`if_neg` on both sides because the two `ite`s carry different instances |
 | fuse the two cancellation passes | 2 of 9 `Int` ops per coefficient | ~1.2x overall, and `fused.py` verifies the algebra; the proof is the expensive part, see below |
 | carry the list lengths instead of recomputing them | ~2,700 list cells | ~3% |
 | `derivHL` without its quadratic `getD` walk | 276 list cells | ~0.2% |
