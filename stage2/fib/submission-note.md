@@ -1,5 +1,40 @@
 # `fib` — the old measurement was invalid, and 2.0x is what is actually there
 
+Paste the block below into the **Submission note** field.
+
+```
+Approach: the same fast doubling, with nothing left between it and the kernel.
+
+The previous entry was the unmodified starter, impl := Nat.fastFib, and a hand-rolled fast doubling had been measured against it and recorded as identical, 0.336 s against 0.342 s at n = 150000. That measurement was an artefact, and finding out why is what this entry rests on. The harness timed a whole process on a file asserting impl n = <a 31,348-digit literal>. Three controls separate the parts: a file containing only that literal, with impl appearing nowhere, costs 0.28 s above start-up; the full assertion costs the same 0.28 s; and impl 150000 % (2^64 - 59), which forces the identical reduction against a right-hand side that costs nothing to read, costs 0.00 s above start-up. The recorded figure was Lean reading its own expected answer, about a hundred times larger than the work and identical in every design by construction. The n-scaling said so at the time: the recorded work rose 3.2x from n = 80000 to 150000, which is a quadratic decimal parse and not kernel work.
+
+The instrument used here instead is Lean's profiler, whose cumulative type checking phase is Environment.addDecl, which is the boundary the rules define as counted: only the target declaration's kernel check. Twelve distinct inputs per judged group, every design in one job on one runner, since runners vary by about 40% between runs.
+
+What the kernel charges for, measured rather than assumed. It is not the big multiplications: a variant adding two provably zero products per level, a*b - a*b, raises the product count at n = 150000 from 52 to 88, a 69% increase, with recursion, Prod, ite, depth, statement and expected literal all identical, and it costs 13%. It is not operand width: the floor is flat at about 28.6 microseconds a product whether the operands are 348 bits or 52,069. It is not the fuel: a small fuel and a fuel of n measure the same. What dominates is the per-level term machinery, roughly 25 elementary kernel operations a level at about 4 microseconds each, of which about ten are the arithmetic.
+
+So this entry removes term machinery, not arithmetic. Two changes, each worth about 1.4x. First, a*b on Nat elaborates to @HMul.hMul Nat Nat Nat instHMul a b, and the kernel unfolds instHMul, Mul.mul and instMulNat before reaching Nat.mul and its own accelerator; written as Nat.mul there is nothing to unfold, and the same holds for Nat.add, Nat.sub, Nat.div and Nat.mod, eight operations a level each saving its instance chain. Second, the recursion is an explicit Nat.rec rather than well-founded recursion: Mathlib's Nat.binaryRec carries termination_by on Nat.log2, which is itself well-founded, so the starter reduces through WellFounded.fix. Nat.rec costs one iota step a level with no Nat.below motive at all. The top of the recursion is also specialised, since only fib n is wanted and not the pair: one product for an even n and two squarings for an odd one, rather than the three a pair costs.
+
+Measured at the judged boundary, kernel milliseconds a case, starter against this entry: 2.296 against 0.967 at the smallest judged group, 2.533 against 1.158, and 2.917 against 1.371 at the largest. Judged total 15.49 ms against 6.99 ms, a factor of 2.22, reproduced across four independent runs between 1.87x and 2.22x.
+
+One negative is worth recording. Replacing both ite tests with Nat matches, to avoid Decidable, is worse rather than better, 1.65x against 1.87x. Matching a Nat literal on 0 against anything else makes the kernel materialise it in constructor form, while if n = 0 goes straight to the beq accelerator and never builds one.
+
+Correctness. impl_correct proves impl n = Nat.fib n for every n, by induction on the fuel, with the doubling identities supplied by Mathlib's Nat.fib_two_mul and Nat.fib_two_mul_add_one. The definitions are written in Nat.mul and the bridging lemmas restate them in notation; each is rfl, the same term definitionally, so those Mathlib identities apply unchanged. #print axioms Submission.impl_correct reports propext, Classical.choice and Quot.sound, all permitted. All thirteen checked cases reduce to their exact expected literal, not merely to a correct residue.
+
+No precomputed answers. impl computes from n alone; there is no table, no hardcoded value and no input-dependent branch carrying an answer.
+
+Acknowledgements and references. No Contributor Network item and no external source was used. Fast doubling for Fibonacci numbers is classical and is not claimed as new, nor is specialising its final step. What is specific to this entry is the demonstration that the earlier negative result measured the expected literal rather than the computation, and the measurement that the cost here is per-level term machinery rather than arithmetic or operand width, which is what identified the instance chains and the well-founded recursion as the things to remove.
+```
+
+## The other fields
+
+| Field | Value |
+|---|---|
+| Problem | **fib** |
+| Submission source | **Upload Submission.lean** |
+| File | `stage2/fib/Submission.lean` |
+| Reference | leave empty; nothing from the Contributor Network was used |
+
+---
+
 The live entry for `fib` is still the shipped starter, `Nat.fastFib`,
 unmodified: 96,290,412 instructions, rank 47 of 47, with rank 3 at 7,121,194,
 a gap of 13.5x.
