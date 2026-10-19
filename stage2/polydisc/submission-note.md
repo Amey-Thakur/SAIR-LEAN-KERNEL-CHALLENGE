@@ -451,6 +451,25 @@ low by half about the size**, which is the usual direction for an operation
 count that charges one unit per arithmetic operation and nothing for the
 traversal carrying it.
 
+## Where each option would land, on the board published 18 October 2026
+
+| | predicted total | rank |
+| :--- | ---: | ---: |
+| submission 692, the specification | 10,322,617,420 | 32 |
+| submission 1610, awaiting publication | ~10,240,776,000 | 28 |
+| **this entry** | **~9,657,187,286** | **27** |
+| the notation fix, if it is worth 10% | ~8,700,000,000 | 25 |
+| the loop packed | ~2,235,991,636 | 16 |
+| the loop packed and the generator jumped | ~1,416,419,868 | 8 |
+| rank 3 | 1,119,039,536 | 3 |
+
+The gap from here to rank 3 is **8.6x**, and nothing in the list representation
+closes it. Everything costed in this file for the specification's own
+representation — the scaling, the division, the notation, the length tests, the
+fused step — comes to at most 1.35x in total. The packed representation is the
+only route measured that reaches the leaders, and even that needs the generator
+packed as well.
+
 ## What is not worth trying, with numbers
 
 | change | operations saved per case | priced at |
