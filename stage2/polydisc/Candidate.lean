@@ -50,6 +50,25 @@ quotient does both.
 
 namespace Submission
 
+/-! ## Which function each notation resolves to
+
+`a * b` on `Int` is `@HMul.hMul Int Int Int instHMul a b`, and the kernel must
+unfold the `HMul.hMul` projection, `instHMul`, the `Mul.mul` projection and
+`Int.instMul` before it reaches an operation it can compute. The arguments
+differ at every use, so no cache helps, and the subresultant loop performs
+about 2,500 of these per judged case.
+
+Writing the function directly skips that, and costs nothing in correctness
+because the two are the same term up to unfolding. These four lines check that
+claim rather than assuming it: if `/` on `Int` were truncating division rather
+than `Int.ediv`, the third would fail by name instead of the proof failing
+somewhere less obvious. -/
+
+example (a b : Int) : a * b = Int.mul a b := rfl
+example (a b : Int) : a - b = Int.sub a b := rfl
+example (a b : Int) : a / b = Int.ediv a b := rfl
+example (a b : Int) : a % b = Int.emod a b := rfl
+
 /-! ## The scaling that is usually by one -/
 
 /-- `scalePolynomial`, which returns its argument when the factor is one. -/
@@ -84,6 +103,32 @@ theorem scaleP_eq (factor : Int) (p : List Int) :
 The shape is the specification's, so the proof is one rewrite at each step
 rather than a case analysis on the two lists. -/
 
+/-- `cancelPseudoLeading` with the arithmetic written as the functions the
+notation resolves to. Two multiplications and a subtraction per coefficient,
+about 1,750 of them per judged case, each one four fewer unfoldings. -/
+def cancelFast (lcG lcR : Int) : List Int → List Int → List Int
+  | coefficient :: coefficients, divisor :: divisors =>
+      Int.sub (Int.mul lcG coefficient) (Int.mul lcR divisor) ::
+        cancelFast lcG lcR coefficients divisors
+  | coefficient :: coefficients, [] =>
+      Int.mul lcG coefficient :: cancelFast lcG lcR coefficients []
+  | [], _ => []
+
+theorem cancelFast_eq (lcG lcR : Int) : ∀ (cs ds : List Int),
+    cancelFast lcG lcR cs ds = cancelPseudoLeading lcG lcR cs ds := by
+  intro cs
+  induction cs with
+  | nil => intro ds; rfl
+  | cons c cs ih =>
+    intro ds
+    cases ds with
+    | nil => show Int.mul lcG c :: cancelFast lcG lcR cs [] = _
+             rw [ih []]
+    | cons d ds =>
+      show Int.sub (Int.mul lcG c) (Int.mul lcR d)
+             :: cancelFast lcG lcR cs ds = _
+      rw [ih ds]
+
 def premGo : Nat → Nat → List Int → List Int → Option (List Int)
   | 0, _, _, _ => none
   | fuel + 1, remaining, divisor, dividend =>
@@ -94,8 +139,7 @@ def premGo : Nat → Nat → List Int → List Int → Option (List Int)
         match divisor, dividend with
         | lcG :: divisorTail, lcR :: dividendTail =>
             let next :=
-              trimLeading
-                (cancelPseudoLeading lcG lcR dividendTail divisorTail)
+              trimLeading (cancelFast lcG lcR dividendTail divisorTail)
             premGo fuel (remaining - 1) divisor next
         | _, _ => none
 
@@ -107,7 +151,7 @@ theorem premGo_eq : ∀ (fuel remaining : Nat) (divisor dividend : List Int),
   | zero => intro _ _ _; rfl
   | succ n ih =>
     intro remaining divisor dividend
-    simp only [premGo, pseudoRemainderGo, scaleP_eq, ih]
+    simp only [premGo, pseudoRemainderGo, scaleP_eq, cancelFast_eq, ih]
     -- what is left is the same match under two auto-generated matchers,
     -- which only full transparency sees through
     all_goals rfl
@@ -134,8 +178,8 @@ theorem prem_eq_fun : prem = pseudoRemainder := by
 def exactDivide (divisor : Int) : List Int → Option (List Int)
   | [] => some []
   | coefficient :: coefficients =>
-      let quotient := coefficient / divisor
-      if divisor == 0 || quotient * divisor != coefficient then none
+      let quotient := Int.ediv coefficient divisor
+      if divisor == 0 || Int.mul quotient divisor != coefficient then none
       else
         match exactDivide divisor coefficients with
         | none => none
@@ -150,8 +194,13 @@ theorem emod_zero_iff (c d : Int) : c % d = 0 ↔ c / d * d = c := by
     omega
 
 theorem guard_eq (c divisor : Int) :
-    (divisor == 0 || c / divisor * divisor != c)
+    (divisor == 0 || Int.mul (Int.ediv c divisor) divisor != c)
       = (divisor == 0 || c % divisor != 0) := by
+  -- stated with the functions, because that is what `exactDivide` contains,
+  -- and proved in the notation, because that is what the core lemmas are
+  -- stated in. The two are the same term up to unfolding.
+  show (divisor == 0 || c / divisor * divisor != c)
+      = (divisor == 0 || c % divisor != 0)
   by_cases h : c % divisor = 0
   · have h1 : c / divisor * divisor = c :=
       Int.ediv_mul_cancel_of_emod_eq_zero h
@@ -177,6 +226,12 @@ theorem exactDivide_eq_fun : exactDivide = exactDividePolynomial := by
   funext d p
   exact exactDivide_eq d p
 
+/-- `lc ^ 2` unfolds to `1 * lc * lc`, so the specification multiplies by one
+here as well, once per step on top of the per-coefficient ones. -/
+theorem sq_eq (h : Int) : Int.mul h h = h ^ 2 := by
+  show Int.mul h h = 1 * h * h
+  rw [Int.one_mul]
+
 /-! ## The specification's subresultant loop, with both changes -/
 
 def resultantGo : Nat → Bool → List Int → List Int → Option Int
@@ -187,7 +242,7 @@ def resultantGo : Nat → Bool → List Int → List Int → Option Int
       | some raw =>
           let divided :=
             if initial then some raw
-            else exactDivide ((f.headD 0) ^ 2) raw
+            else exactDivide (Int.mul (f.headD 0) (f.headD 0)) raw
           match divided with
           | none => none
           | some coefficients =>
@@ -208,7 +263,8 @@ theorem resultantGo_eq : ∀ fuel initial f g,
   | zero => intro _ _ _; rfl
   | succ n ih =>
     intro initial f g
-    rw [resultantGo, normalResultantGo, exactDivide_eq_fun, prem_eq_fun]
+    rw [resultantGo, normalResultantGo, exactDivide_eq_fun, prem_eq_fun,
+      sq_eq]
     -- Each side's matches compile to their own matcher, so `split` takes the
     -- two apart independently and invents a separate variable for the same
     -- scrutinee. Every shared scrutinee is therefore generalised by hand.

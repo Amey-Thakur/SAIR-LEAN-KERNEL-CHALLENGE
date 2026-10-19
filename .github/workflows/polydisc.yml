@@ -35,7 +35,7 @@ on:
         description: "which benchmarks the instrument runs"
         type: choice
         default: judged
-        options: [judged, round2, all]
+        options: [judged, chains, round2, all]
 
 permissions:
   contents: read
