@@ -143,9 +143,9 @@ jobs:
       # The kernel's own cost, not the clock's. A Mathlib package pays about
       # 1.74 s of start-up before it does any work, so a whole-process figure
       # cannot resolve a change of 1.4x in a computation that takes a fraction
-      # of a second. `profkernel.py` reads Lean's profiler instead, whose
-      # cumulative `type checking` phase is `addDecl`, which is the boundary
-      # the rules define as counted. The previous entry and the candidate are
+      # of a second. profkernel.py reads Lean's profiler instead, whose
+      # cumulative "type checking" phase is addDecl, which is the boundary the
+      # rules define as counted. The previous entry and the candidate are
       # built and measured back to back on the same runner.
       - name: Kernel cost, previous entry against the candidate
         if: always()
@@ -154,26 +154,26 @@ jobs:
         run: |
           case "${{ matrix.problem }}" in
             primecount) PREV=SubmissionSqrt.lean ;;
-            mertens)    PREV=SubmissionPrev.lean ;;
-            *)          PREV="" ;;
+            mertens) PREV=SubmissionPrev.lean ;;
+            *) PREV="" ;;
           esac
           SRC=../../../stage2/${{ matrix.problem }}
-          if [ -z "$PREV" ] || [ ! -f "$SRC/$PREV" ]; then
-            echo "no previous entry recorded for ${{ matrix.problem }}"; exit 0
-          fi
           KERN=../../../${{ matrix.problem }}-kernel.tsv
-          printf 'design	cases	kernel_ms	runs
-' > "$KERN"
+          if [ -z "$PREV" ] || [ ! -f "$SRC/$PREV" ]; then
+            echo "no previous entry recorded for ${{ matrix.problem }}"
+            exit 0
+          fi
           for which in prev cand; do
-            if [ "$which" = prev ]; then cp "$SRC/$PREV" Submission.lean
-            else cp "$SRC/Submission.lean" Submission.lean; fi
-            if ! lake build > /dev/null 2>&1; then
-              echo "  $which: BUILD FAILED"; continue
+            if [ "$which" = prev ]; then cp "$SRC/$PREV" Submission.lean; fi
+            if [ "$which" = cand ]; then cp "$SRC/Submission.lean" Submission.lean; fi
+            if lake build > /dev/null 2>&1; then
+              python ../../../stage2/profkernel.py --cases "$SRC/cases.json" --label "$which" --reps 2 --min-n 50 --out "$KERN"
+            else
+              echo "  $which: BUILD FAILED"
             fi
-            python ../../../stage2/profkernel.py               --cases "$SRC/cases.json" --label "$which" --reps 2               --min-n 50 --out "$KERN"
           done
           echo "=== kernel ms, the judged boundary ==="
-          cat "$KERN"
+          cat "$KERN" || true
 
       - name: Report
         if: always()
