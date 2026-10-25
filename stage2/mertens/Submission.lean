@@ -205,15 +205,28 @@ With a reducible factorisation, Mathlib's own characterisation of moebius
 applies directly: zero when the argument is not squarefree, and the sign of the
 factor count when it is. -/
 
+/-! ### The sign, by parity rather than by a power -/
+
+/-- `(-1 : Int) ^ k` goes through `Monoid.npow`, which performs k
+multiplications. The parity of k decides the answer in one `Nat.mod`, and this
+runs once for every n up to the judged size. -/
+def signOf (k : Nat) : Int := if Nat.mod k 2 = 0 then 1 else -1
+
+theorem signOf_eq (k : Nat) : signOf k = (-1 : Int) ^ k := by
+  rw [signOf]
+  by_cases h : k % 2 = 0
+  · rw [if_pos h, (Nat.even_iff.mpr h).neg_one_pow]
+  · rw [if_neg h, (Nat.odd_iff.mpr (by omega)).neg_one_pow]
+
 def muFast (n : Nat) : Int :=
   if n = 0 then 0
   else
     let fs := factorsFast n n
-    if fs.Nodup then (-1) ^ fs.length else 0
+    if fs.Nodup then signOf fs.length else 0
 
 theorem muFast_eq (n : Nat) :
     muFast n = (ArithmeticFunction.moebius n : Int) := by
-  rw [muFast]
+  rw [muFast, signOf_eq]
   by_cases hz : n = 0
   · subst hz
     simp
@@ -235,11 +248,37 @@ def sumMu : Nat → Int
   | 0     => muFast 0
   | k + 1 => sumMu k + muFast (k + 1)
 
-def impl (n : Nat) : Int := sumMu n
+/-! ### The outer sum, by explicit recursor
+
+`sumMu` recurses n times and is the outermost loop of the problem, so whatever
+the equation compiler adds per level is paid n times. It adds `Nat.brecOn` with
+a `Nat.below` motive; `Nat.rec` reduces by one iota step with no `below`
+structure at all. The accumulation is written `Int.add` for the same reason the
+inner walk is written `Nat.mul`: `a + b` on `Int` elaborates through
+`instHAdd`, `Add.add` and `instAddInt` first. -/
+
+/-- `a + b` on `Int`, stated so a rewrite can cross the instance chain that
+`rfl` at reducible transparency cannot see through. -/
+theorem int_add_def (a b : Int) : a + b = Int.add a b := rfl
+
+def sumMuRaw : Nat → Int :=
+  Nat.rec (motive := fun _ => Int) (muFast 0)
+    (fun k ih => Int.add ih (muFast (Nat.succ k)))
+
+theorem sumMuRaw_eq : ∀ n, sumMuRaw n = sumMu n := by
+  intro n
+  induction n with
+  | zero => rfl
+  | succ k ih =>
+    show Int.add (sumMuRaw k) (muFast (Nat.succ k)) = sumMu k + muFast (k + 1)
+    rw [int_add_def, ih]
+
+def impl (n : Nat) : Int := sumMuRaw n
 
 theorem impl_correct : ∀ n, impl n = mertensSpec n := by
   intro n
-  show sumMu n = mertensSpec n
+  show sumMuRaw n = mertensSpec n
+  rw [sumMuRaw_eq]
   induction n with
   | zero =>
     show muFast 0 = mertensSpec 0
