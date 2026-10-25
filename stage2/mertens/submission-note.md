@@ -1,3 +1,56 @@
+# Submission note - `mertens`
+
+Paste the block below into the **Submission note** field.
+
+```
+Approach: the same algorithm, with three places where the kernel was doing work that is not arithmetic.
+
+Background. The shipped starter cannot be reduced: Nat.minFac dispatches to minFacAux, Nat.primeFactorsList recurses on n / minFac n, and both are well-founded recursion, which the Lean kernel does not unfold. The live entry replaced each with a fuelled structural walk, bounded by n < k * k written out rather than through Nat.sqrt, which is itself well founded. That is the algorithm and it is unchanged here.
+
+Three changes, none of which touches the algorithm.
+
+First, the inner walk. k * k on Nat elaborates to @HMul.hMul Nat Nat Nat instHMul k k, and the kernel unfolds instHMul, Mul.mul and instMulNat before it reaches Nat.mul and its own accelerator; the same holds for % and +. Three such operations run on every iteration of the trial-division walk, which is the innermost loop of the whole problem: once per candidate divisor, per factorisation, per n.
+
+Second, the outer sum. sumMu recurses n times and is the outermost loop, so whatever a level costs is paid n times over. That recursion was left to the equation compiler, which produces Nat.brecOn with a Nat.below motive; an explicit Nat.rec reduces by one iota step with no below structure at all. The accumulator is written Int.add for the same reason the walk is written Nat.mul.
+
+Third, the sign. (-1 : Int) ^ fs.length goes through Monoid.npow, which performs one multiplication per prime factor, and it is evaluated once for every n up to the judged size. The parity of the length decides the answer in one Nat.mod and a branch.
+
+Measured at the boundary the rules define as counted. rules/evaluation.md counts only the target declaration's kernel check, and Lean's profiler reports a cumulative type checking phase, which is Environment.addDecl, which is that check. Previous entry 1,360 ms against this entry 1,170 ms over the five judged cases: a factor of 1.162 on the minimum of five repetitions, and 1.145 on the median. Both designs are built and measured back to back in the same job on the same runner.
+
+The number of repetitions mattered and is worth recording. Two repetitions could not resolve this change at all. On a shared runner the spread within a single job reached ten per cent, which is comparable to the effect, and two successive measurements of the very same pair of designs gave 1.094 and 1.033. Five repetitions with the minimum taken is stable and agrees with the median to within two per cent. A ratio is only as good as the spread underneath it.
+
+Wall clock cannot see any of this, which is why none is quoted. A Mathlib package pays about 1.74 s of start-up before it does any work, larger than the whole computation. The same trap was measured on fib in this repository on 18 October 2026, where a file containing only that problem's expected literal, with impl appearing nowhere, cost exactly as much as the full assertion.
+
+Correctness carries no new risk. None of the three new forms is proved correct from scratch: minFacAuxRaw_eq, sumMuRaw_eq and signOf_eq prove each equal to what the live entry already does, so every existing lemma, from minFacFast_eq through factorsFast_eq and muFast_eq to the route into ArithmeticFunction.moebius, is reused untouched. Four one-line bridging lemmas are needed because rw finishes with rfl at reducible transparency, which cannot see through an instance chain even where the two sides are definitionally equal. One consequence is worth stating: a case split has to be made on the raw form, since the goal after unfolding reads k.mod 2 and a hypothesis about k % 2 will not match it syntactically.
+
+impl_correct is proved for every n. #print axioms Submission.impl_correct reports propext, Classical.choice and Quot.sound, all permitted.
+
+No precomputed answers. There is no table of Moebius values or of primes, no hardcoded value and no input-dependent branch carrying an answer; every factorisation is computed at reduction time.
+
+Acknowledgements and references. No Contributor Network item and no external source was used. Writing arithmetic against a type's own operations rather than through a typeclass, preferring a recursor to a compiled recursion, and deciding a sign by parity rather than by exponentiation are ordinary facts about how Lean elaborates and are not claimed as discoveries. What is specific here is the measurement that they are jointly worth about fifteen per cent on this problem, taken at the judged boundary with enough repetitions to exceed the runner's own spread, and the decision to prove each fast form equal to the slow one so that a change made for speed carries no proof risk.
+```
+
+## The other fields
+
+| Field | Value |
+|---|---|
+| Problem | **mertens** |
+| Submission source | **Upload Submission.lean** |
+| File | `stage2/mertens/Submission.lean` |
+| Reference | leave empty; nothing from the Contributor Network was used |
+
+## Measured
+
+| | previous entry | this entry |
+| :--- | ---: | ---: |
+| kernel ms, five judged cases, min of 5 | 1,360 | **1,170** |
+| factor, min / median | - | **1.162x / 1.145x** |
+| projected rank | 35 of 35 | **34** |
+
+Axioms `[propext, Classical.choice, Quot.sound]`. Build green, 0 errors.
+
+---
+
 # Submission note — `mertens`
 
 Paste the block below into the **Submission note** field.
