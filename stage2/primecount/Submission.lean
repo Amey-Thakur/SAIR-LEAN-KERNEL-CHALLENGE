@@ -39,6 +39,27 @@ discharges it.
 Only the primality test changes. The count is still the starter's own `countP`
 over `List.range`, so the proof reuses the starter's route from `countP` to
 `Nat.primeCounting`.
+
+## The second repair, 24 October 2026: nothing between the loop and the kernel
+
+The loop above is correct and bounded, and it still pays twice per iteration
+for things that are not arithmetic.
+
+`d * d` on `Nat` elaborates to `@HMul.hMul Nat Nat Nat instHMul d d`, and the
+kernel unfolds `instHMul`, `Mul.mul` and `instMulNat` before it reaches
+`Nat.mul` and its own accelerator. The same holds for `%` and for `+`. Three
+such operations run on every one of about twenty-one thousand iterations at
+the largest judged size.
+
+And the recursion, though structural, is left to the equation compiler, which
+produces `Nat.brecOn` with a `Nat.below` motive. An explicit `Nat.rec` reduces
+by one iota step a level with no `below` structure at all.
+
+Both changes were measured on `fib` in this repository on 18 October 2026, at
+about 1.4x each and 2.33x together, on the judged metric rather than on wall
+clock. Neither changes the algorithm: `noFactorFast_eq` proves the new loop
+equal to the old one, so every lemma below about `noFactorFrom` is reused
+untouched.
 -/
 
 namespace Submission
@@ -52,9 +73,44 @@ def noFactorFrom (p : Nat) : Nat → Nat → Bool
       else if p % d == 0 then false
       else noFactorFrom p fuel (d + 1)
 
+/-! ## The same loop, with nothing between it and the kernel -/
+
+/-- Bridging the notation to the kernel's own operations. Each is `rfl`, but a
+rewrite needs them stated: `rw` finishes with `rfl` at *reducible*
+transparency, which cannot see through the instance chain. -/
+theorem mul_def (a b : Nat) : a * b = Nat.mul a b := rfl
+
+theorem mod_def (a b : Nat) : a % b = Nat.mod a b := rfl
+
+theorem succ_def (a : Nat) : a + 1 = Nat.succ a := rfl
+
+/-- One iteration, with the recursive call passed in. -/
+def fastBody (p : Nat) (ih : Nat → Bool) (d : Nat) : Bool :=
+  if p < Nat.mul d d then true
+  else if Nat.mod p d == 0 then false
+  else ih (Nat.succ d)
+
+/-- The loop by explicit `Nat.rec`: one iota step a level, and no `Nat.below`
+structure built around it. -/
+def noFactorFast (p : Nat) : Nat → Nat → Bool :=
+  Nat.rec (motive := fun _ => Nat → Bool) (fun _ => true)
+    (fun _ ih => fastBody p ih)
+
+/-- The two loops are the same function, so every lemma about `noFactorFrom`
+carries over without restating it. -/
+theorem noFactorFast_eq (p : Nat) :
+    ∀ fuel d, noFactorFast p fuel d = noFactorFrom p fuel d := by
+  intro fuel
+  induction fuel with
+  | zero => intro _; rfl
+  | succ f ih =>
+    intro d
+    show fastBody p (noFactorFast p f) d = noFactorFrom p (f + 1) d
+    rw [fastBody, noFactorFrom, mul_def, mod_def, succ_def, ih (Nat.succ d)]
+
 /-- Primality by trial division bounded at the square root. -/
 def isPrimeFast (p : Nat) : Bool :=
-  decide (2 ≤ p) && noFactorFrom p p 2
+  decide (2 ≤ p) && noFactorFast p p 2
 
 def impl (n : Nat) : Nat := (List.range (n + 1)).countP isPrimeFast
 
@@ -121,8 +177,8 @@ theorem noFactorFrom_complete (p : Nat) :
 
 theorem isPrimeFast_eq (p : Nat) : isPrimeFast p = decide (Nat.Prime p) := by
   apply Bool.eq_iff_iff.mpr
-  rw [isPrimeFast, Bool.and_eq_true, decide_eq_true_eq, decide_eq_true_eq,
-      Nat.prime_def_le_sqrt]
+  rw [isPrimeFast, noFactorFast_eq, Bool.and_eq_true, decide_eq_true_eq,
+      decide_eq_true_eq, Nat.prime_def_le_sqrt]
   constructor
   · rintro ⟨h2, hrun⟩
     refine ⟨h2, fun m hm hle => ?_⟩
