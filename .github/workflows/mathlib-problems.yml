@@ -167,7 +167,7 @@ jobs:
             if [ "$which" = prev ]; then cp "$SRC/$PREV" Submission.lean; fi
             if [ "$which" = cand ]; then cp "$SRC/Submission.lean" Submission.lean; fi
             if lake build > /dev/null 2>&1; then
-              python ../../../stage2/profkernel.py --cases "$SRC/cases.json" --label "$which" --reps 2 --min-n 50 --out "$KERN"
+              python ../../../stage2/profkernel.py --cases "$SRC/cases.json" --label "$which" --reps 5 --min-n 50 --out "$KERN"
             else
               echo "  $which: BUILD FAILED"
             fi
