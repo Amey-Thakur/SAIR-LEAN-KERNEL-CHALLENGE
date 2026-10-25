@@ -214,9 +214,16 @@ def signOf (k : Nat) : Int := if Nat.mod k 2 = 0 then 1 else -1
 
 theorem signOf_eq (k : Nat) : signOf k = (-1 : Int) ^ k := by
   rw [signOf]
-  by_cases h : k % 2 = 0
-  · rw [if_pos h, (Nat.even_iff.mpr h).neg_one_pow]
-  · rw [if_neg h, (Nat.odd_iff.mpr (by omega)).neg_one_pow]
+  -- the split has to be on the RAW form, because `rw` matches syntactically
+  -- and the goal reads `k.mod 2`, not `k % 2`
+  by_cases h : Nat.mod k 2 = 0
+  · have he : Even k := Nat.even_iff.mpr h
+    rw [if_pos h]
+    exact he.neg_one_pow.symm
+  · have h' : ¬ (k % 2 = 0) := h
+    have ho : Odd k := Nat.odd_iff.mpr (by omega)
+    rw [if_neg h]
+    exact ho.neg_one_pow.symm
 
 def muFast (n : Nat) : Int :=
   if n = 0 then 0
@@ -226,7 +233,7 @@ def muFast (n : Nat) : Int :=
 
 theorem muFast_eq (n : Nat) :
     muFast n = (ArithmeticFunction.moebius n : Int) := by
-  rw [muFast, signOf_eq]
+  rw [muFast]
   by_cases hz : n = 0
   · subst hz
     simp
@@ -237,7 +244,9 @@ theorem muFast_eq (n : Nat) :
     by_cases hnd : (Nat.primeFactorsList n).Nodup
     · have hsq : Squarefree n :=
         (Nat.squarefree_iff_nodup_primeFactorsList hz).mpr hnd
-      rw [if_pos hnd, ArithmeticFunction.moebius_apply_of_squarefree hsq,
+      -- `signOf` only becomes reachable once this `if` is resolved
+      rw [if_pos hnd, signOf_eq,
+          ArithmeticFunction.moebius_apply_of_squarefree hsq,
           ArithmeticFunction.cardFactors_apply]
     · have hsq : ¬ Squarefree n := fun h =>
         hnd ((Nat.squarefree_iff_nodup_primeFactorsList hz).mp h)
